@@ -24,7 +24,8 @@ def PositionEmbeddingSine(hidden_dim = 64, normalize = True, eps = 1e-6):
   x_cosines = tf.keras.layers.Lambda(lambda x: tf.math.cos(x[:,:,1::2]))(x_angles); # x_cosines.shape = (height, width, d_model // 2)
   pos_encoding = tf.keras.layers.Concatenate()([y_sines, y_cosines, x_sines, x_cosines]); # pos_encoding.shape = (height, width, d_model * 2)
   pos_encoding = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x, axis = 0))(pos_encoding); # pos_encoding.shape = (1, height, width, hidden_dim)
-  return tf.keras.Model(inputs = inputs, outputs = pos_encoding);
+  results = tf.keras.layers.Add()([inputs, pos_encoding]);
+  return tf.keras.Model(inputs = inputs, outputs = results);
 
 def PositionEmbeddingLearned(hidden_dim = 256):
 
@@ -38,19 +39,21 @@ def PositionEmbeddingLearned(hidden_dim = 256):
   x_mesh = tf.keras.layers.Lambda(lambda x: tf.tile(tf.reshape(x[0], (1, tf.shape(x[0])[1], tf.shape(x[0])[2])), (tf.shape(x[1])[1], 1, 1)))([x_embedding, y_embedding]); # x_mesh.shape = (height, widht, d_model)
   pos_encoding = tf.keras.layers.Concatenate(axis = -1)([y_mesh, x_mesh]); # pos_encoding.shape = (height, width, 2 * d_model)
   pos_encoding = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x, axis = 0))(pos_encoding); # pos_encoding.shape = (1, height, width, hidden_dim)
-  return tf.keras.Model(inputs = inputs, outputs = pos_encoding);
+  results = tf.keras.layers.Add()([inputs, pos_encoding]);
+  return tf.keras.Model(inputs = inputs, outputs = results);
 
-def CNN(position_embedding = 'sine'):
+def CNN(hidden_dim = 64, position_embedding = 'sine'):
 
   assert position_embedding in ['sine', 'learned'];
   inputs = tf.keras.Input((None, None, 3)); # inputs.shape = (batch, height, width, 3)
-  if position_embedding == 'sine':
-    pass;
-  elif position_embedding == 'learned':
-    pass;
-  else: raise Exception('unknonw position embedding!');
   resnet50 = tf.keras.applications.ResNet50(input_tensor = inputs, include_top = False, weights = 'imagenet');
-  resnet50.get_layer('conv5_block3_out').output
+  results = tf.keras.layers.Conv2D(filters = hidden_dim, kernel_size = (1, 1), padding = 'same')(resnet50.get_layer('conv5_block3_out').output);
+  if position_embedding == 'sine':
+    results = PositionEmbeddingSine(hidden_dim);
+  elif position_embedding == 'learned':
+    results = PositionEmbeddingLearned(hidden_dim);
+  else: raise Exception('unknonw position embedding!');
+  
   print(resnet50.get_layer('conv5_block3_out').output.shape)
 
 if __name__ == "__main__":
