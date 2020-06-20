@@ -194,7 +194,7 @@ def Transformer(vocab_size, num_layers = 2, d_model = 256, num_heads = 8, code_d
     dec_padding_mask = tf.keras.layers.Lambda(create_padding_mask)(inputs);       # dec_padding_mask.shape = (batch, 1, 1(will be dec_input length), encode_length)
     # 2) generate code
     code = Encoder(vocab_size, num_layers, d_model, num_heads, code_dim, dropout_rate, activation)([inputs, enc_padding_mask]); # code.shape = (batch, encode_length, dimension)
-    decoded = Decoder(vocab_size, num_heads, d_model, num_heads, code_dim, dropout_rate, activation)([dec_inputs, code, look_ahead_mask, dec_padding_mask]); # decoded.shape = (batch, decode_length, dimension)
+    decoded = Decoder(vocab_size, num_layers, d_model, num_heads, code_dim, dropout_rate, activation)([dec_inputs, code, look_ahead_mask, dec_padding_mask]); # decoded.shape = (batch, decode_length, dimension)
     # 3) output
     outputs = tf.keras.layers.Dense(units = vocab_size)(decoded); # outputs.shape = (batch, decode_length, vocab_size)
     return tf.keras.Model(inputs = (inputs, dec_inputs), outputs = outputs);

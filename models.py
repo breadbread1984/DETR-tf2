@@ -83,7 +83,7 @@ def ImageDecoder(num_layers, d_model, num_heads, code_dim, dropout_rate, activat
       code_with_pos = PositionEmbeddingLearned(d_model)(code); # code_with_pos.shape = (batch, height, width, d_model)
     else: raise Exception('unknonw position embedding!');
     code_with_pos = tf.keras.layers.Reshape((-1, d_model))(code_with_pos); # outputs.shape = (batch, height * width, d_model)
-    look_ahead_mask = tf.keras.layers.Lambda(lambda x: tf.zeros((tf.shape(x[0])[0], 1, tf.shape(x[1])[1], tf.shape(x[0])[1]), dtype = tf.float32))([code_with_pos, inputs]); # look_ahead_mask.shape = (batch, 1, num_queries, code_length)
+    look_ahead_mask = tf.keras.layers.Lambda(lambda x: tf.zeros((tf.shape(x[0])[0], 1, tf.shape(x[1])[1], tf.shape(x[0])[1]), dtype = tf.float32))([code_with_pos, inputs]); # look_ahead_mask.shape = (batch, 1, num_queries, height * width)
     outputs = tf.keras.layers.Dropout(rate = dropout_rate)(inputs); # outputs.shape = (batch, decode_length, d_model)
     # 3) multiple decode layers
     for i in range(num_layers):
@@ -101,7 +101,7 @@ def ImageTransformer(num_classes, num_layers = 2, num_queries = 100, d_model = 2
     dec_padding_mask = tf.keras.layers.Lambda(lambda x, n: tf.zeros((tf.shape(x)[0], 1, 1, n), dtype = tf.float32), arguments = {'n': num_queries})(inputs); # dec_padding_mask.shape = (batch, 1, 1, num_queries)
     # 2) generate code
     code = ImageEncoder(num_layers, d_model, num_heads, code_dim, dropout_rate, activation, position_embedding)([inputs, enc_padding_mask]); # code.shape = (batch, height, width, d_model)
-    decoded = ImageDecoder(num_heads, d_model, num_heads, code_dim, dropout_rate, activation, position_embedding)([dec_inputs, code, dec_padding_mask]); # decoded.shape = (batch, num_queries, d_model)
+    decoded = ImageDecoder(num_layers, d_model, num_heads, code_dim, dropout_rate, activation, position_embedding)([dec_inputs, code, dec_padding_mask]); # decoded.shape = (batch, num_queries, d_model)
     # 3) output
     # predict class
     classes = tf.keras.layers.Dense(units = num_classes + 1)(decoded); # outputs.shape = (batch, num_queries, num_classes + 1)
@@ -128,7 +128,7 @@ if __name__ == "__main__":
   print(b.shape);
   b = PositionEmbeddingLearned(2048)(a);
   print(b.shape);
-  detr = DETR(100);
+  detr = DETR(50);
   a = tf.constant(np.random.normal(size = (8, 480, 640, 3)), dtype = tf.float32);
   classes, coords = detr(a);
   detr.save('detr.h5');
