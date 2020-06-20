@@ -89,18 +89,17 @@ def ImageDecoder(num_layers, d_model, num_heads, code_dim, dropout_rate, activat
         outputs = DecoderLayer(d_model, num_heads, code_dim, dropout_rate, activation)([outputs, code, look_ahead_mask, padding_mask]); # outputs.shape = (batch, decode_length, dimension)
     return tf.keras.Model(inputs = (inputs, code, padding_mask), outputs = outputs);
 
-def ImageTransformer(num_layers = 2, d_model = 256, num_heads = 8, code_dim = 512, dropout_rate = 0.1, activation = 'relu'):
+def ImageTransformer(num_layers = 2, d_model = 256, num_heads = 8, code_dim = 512, dropout_rate = 0.1, activation = 'relu', position_embedding = 'sine'):
     
     assert activation in ['relu', 'gelu'];
-
     # 1) inputs
     inputs = tf.keras.Input((None, None, d_model));                                                                    # inputs.shape = (batch, height, width, d_model)
     dec_inputs = tf.keras.layers.Lambda(lambda x: tf.zeros_like(x, dtype = tf.float32))(inputs);                       # dec_inputs.shape = (batch, decode_length)
     enc_padding_mask = tf.keras.layers.Lambda(lambda x: tf.zeros(tf.shape(x)[0:3], dtype = tf.float32))(inputs);       # enc_padding_mask.shape = (batch, height, width)
     dec_padding_mask = tf.keras.layers.Lambda(lambda x: tf.zeros(tf.shape(x)[0:3], dtype = tf.float32))(inputs);       # dec_padding_mask.shape = (batch, height, width)
     # 2) generate code
-    code = ImageEncoder(num_layers, d_model, num_heads, code_dim, dropout_rate, activation)([inputs, enc_padding_mask]); # code.shape = (batch, encode_length, dimension)
-    decoded = ImageDecoder(num_heads, d_model, num_heads, code_dim, dropout_rate, activation)([dec_inputs, code, dec_padding_mask]); # decoded.shape = (batch, decode_length, dimension)
+    code = ImageEncoder(num_layers, d_model, num_heads, code_dim, dropout_rate, activation, position_embedding)([inputs, enc_padding_mask]); # code.shape = (batch, encode_length, dimension)
+    decoded = ImageDecoder(num_heads, d_model, num_heads, code_dim, dropout_rate, activation, position_embedding)([dec_inputs, code, dec_padding_mask]); # decoded.shape = (batch, decode_length, dimension)
     # 3) output
     # TODO: output dim
     outputs = tf.keras.layers.Dense(units = vocab_size)(decoded); # outputs.shape = (batch, decode_length, vocab_size)
@@ -112,7 +111,7 @@ def DETR(hidden_dim = 64, position_embedding = 'sine'):
   inputs = tf.keras.Input((None, None, 3)); # inputs.shape = (batch, height, width, 3)
   resnet50 = tf.keras.applications.ResNet50(input_tensor = inputs, include_top = False, weights = 'imagenet');
   results = tf.keras.layers.Conv2D(filters = hidden_dim, kernel_size = (1, 1), padding = 'same')(resnet50.get_layer('conv5_block3_out').output);
-  results = ImageTransformer()(results);
+  results = ImageTransformer(d_model = hidden_dim, position_embedding = position_embedding)(results);
   # TODO:
 
 if __name__ == "__main__":
