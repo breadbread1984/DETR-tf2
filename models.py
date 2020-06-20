@@ -3,6 +3,7 @@
 from math import pi;
 import numpy as np;
 import tensorflow as tf;
+from Transformer import EncoderLayer, DecoderLayer;
 
 def PositionEmbeddingSine(hidden_dim = 64, normalize = True, eps = 1e-6):
 
@@ -24,7 +25,7 @@ def PositionEmbeddingSine(hidden_dim = 64, normalize = True, eps = 1e-6):
   x_cosines = tf.keras.layers.Lambda(lambda x: tf.math.cos(x[:,:,1::2]))(x_angles); # x_cosines.shape = (height, width, d_model // 2)
   pos_encoding = tf.keras.layers.Concatenate()([y_sines, y_cosines, x_sines, x_cosines]); # pos_encoding.shape = (height, width, d_model * 2)
   pos_encoding = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x, axis = 0))(pos_encoding); # pos_encoding.shape = (1, height, width, hidden_dim)
-  results = tf.keras.layers.Add()([inputs, pos_encoding]);
+  results = tf.keras.layers.Lambda(lambda x: x[0] + x[1])([inputs, pos_encoding]);
   return tf.keras.Model(inputs = inputs, outputs = results);
 
 def PositionEmbeddingLearned(hidden_dim = 256):
@@ -39,22 +40,80 @@ def PositionEmbeddingLearned(hidden_dim = 256):
   x_mesh = tf.keras.layers.Lambda(lambda x: tf.tile(tf.reshape(x[0], (1, tf.shape(x[0])[1], tf.shape(x[0])[2])), (tf.shape(x[1])[1], 1, 1)))([x_embedding, y_embedding]); # x_mesh.shape = (height, widht, d_model)
   pos_encoding = tf.keras.layers.Concatenate(axis = -1)([y_mesh, x_mesh]); # pos_encoding.shape = (height, width, 2 * d_model)
   pos_encoding = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x, axis = 0))(pos_encoding); # pos_encoding.shape = (1, height, width, hidden_dim)
-  results = tf.keras.layers.Add()([inputs, pos_encoding]);
+  results = tf.keras.layers.Lambda(lambda x: x[0] + x[1])([inputs, pos_encoding]);
   return tf.keras.Model(inputs = inputs, outputs = results);
 
-def CNN(hidden_dim = 64, position_embedding = 'sine'):
+def ImageEncoder(num_layers, d_model, num_heads, code_dim, dropout_rate, activation = "relu", position_embedding = 'sine'):
+
+    assert activation in ['relu', 'gelu'];
+    # d_model must be divisible by num_heads.
+    tf.debugging.Assert(tf.equal(d_model % num_heads,0),[d_model, num_heads]);
+    # 1) inputs
+    inputs = tf.keras.Input((None, None, d_model)); # inputs.shape = (batch, height, width, d_model)
+    mask = tf.keras.Input((None, None));  # mask.shape = (batch, height, width)
+    # 2) token to positional embedding
+    if position_embedding == 'sine':
+      embeddings = PositionEmbeddingSine(d_model)(inputs); # embeddings.shape = (batch, )
+    elif position_embedding == 'learned':
+      embeddings = PositionEmbeddingLearned(d_model)(inputs);
+    else: raise Exception('unknonw position embedding!');
+    embeddings = tf.keras.layers.Reshape((-1, d_model))(embeddings); # outputs.shape = (batch, height * width, d_model)
+    mask = tf.keras.layers.Reshape((1,1,-1))(mask); # mask.shape = (batch, 1, 1(will be height * width), height * width)
+    outputs = tf.keras.layers.Dropout(rate = dropout_rate)(embeddings);  # embeddings.shape = (batch, encode_length, dimension)
+    # 3) multiple encode layers
+    for i in range(num_layers):
+        outputs = EncoderLayer(d_model, num_heads, code_dim, dropout_rate, activation)([outputs, mask]); # outputs.shape = (batch, encode_length, dimension)
+    return tf.keras.Model(inputs = (inputs, mask), outputs = outputs);
+
+def ImageDecoder(num_layers, d_model, num_heads, code_dim, dropout_rate, activation = 'relu', position_embedding = 'sine'):
+    
+    assert activation in ['relu', 'gelu'];
+    # d_model must be divisible by num_heads.
+    tf.debugging.Assert(tf.equal(d_model % num_heads,0),[d_model, num_heads]);
+    # 1) inputs
+    inputs = tf.keras.Input((None, None, d_model)); # inputs.shape = (batch, height, width, d_model)
+    code = tf.keras.Input((None, d_model));            # code.shape = (batch, encode_length, dimension)
+    padding_mask = tf.keras.Input((None, None));       # padding_mask.shape = (batch, height, width)
+    # 2) token to positional embedding
+    if position_embedding == 'sine':
+      embeddings = PositionEmbeddingSine(d_model)(inputs); # embeddings.shape = (batch, )
+    elif position_embedding == 'learned':
+      embeddings = PositionEmbeddingLearned(d_model)(inputs);
+    else: raise Exception('unknonw position embedding!');
+    embeddings = tf.keras.layers.Reshape((-1, d_model))(embeddings); # outputs.shape = (batch, height * width, d_model)
+    look_ahead_mask = tf.keras.layers.Lambda(lambda x: tf.zeros((tf.shape(x[0])[0], 1, tf.shape(x[1])[1], tf.shape(x[0])[1]), dtype = tf.float32))([code, embedding]); # look_ahead_mask.shape = (batch, 1, embeding_length, code_length)
+    padding_mask = tf.keras.layers.Reshape((1,1,-1))(padding_mask); # mask.shape = (batch, 1, 1(will be height * width), height * width)
+    outputs = tf.keras.layers.Dropout(rate = dropout_rate)(embeddings); # outputs.shape = (batch, decode_length, dimension)
+    # 3) multiple decode layers
+    for i in range(num_layers):
+        outputs = DecoderLayer(d_model, num_heads, code_dim, dropout_rate, activation)([outputs, code, look_ahead_mask, padding_mask]); # outputs.shape = (batch, decode_length, dimension)
+    return tf.keras.Model(inputs = (inputs, code, padding_mask), outputs = outputs);
+
+def ImageTransformer(num_layers = 2, d_model = 256, num_heads = 8, code_dim = 512, dropout_rate = 0.1, activation = 'relu'):
+    
+    assert activation in ['relu', 'gelu'];
+
+    # 1) inputs
+    inputs = tf.keras.Input((None, None, d_model));                                                                    # inputs.shape = (batch, height, width, d_model)
+    dec_inputs = tf.keras.layers.Lambda(lambda x: tf.zeros_like(x, dtype = tf.float32))(inputs);                       # dec_inputs.shape = (batch, decode_length)
+    enc_padding_mask = tf.keras.layers.Lambda(lambda x: tf.zeros(tf.shape(x)[0:3], dtype = tf.float32))(inputs);       # enc_padding_mask.shape = (batch, height, width)
+    dec_padding_mask = tf.keras.layers.Lambda(lambda x: tf.zeros(tf.shape(x)[0:3], dtype = tf.float32))(inputs);       # dec_padding_mask.shape = (batch, height, width)
+    # 2) generate code
+    code = ImageEncoder(num_layers, d_model, num_heads, code_dim, dropout_rate, activation)([inputs, enc_padding_mask]); # code.shape = (batch, encode_length, dimension)
+    decoded = ImageDecoder(num_heads, d_model, num_heads, code_dim, dropout_rate, activation)([dec_inputs, code, dec_padding_mask]); # decoded.shape = (batch, decode_length, dimension)
+    # 3) output
+    # TODO: output dim
+    outputs = tf.keras.layers.Dense(units = vocab_size)(decoded); # outputs.shape = (batch, decode_length, vocab_size)
+    return tf.keras.Model(inputs = inputs, outputs = outputs);
+
+def DETR(hidden_dim = 64, position_embedding = 'sine'):
 
   assert position_embedding in ['sine', 'learned'];
   inputs = tf.keras.Input((None, None, 3)); # inputs.shape = (batch, height, width, 3)
   resnet50 = tf.keras.applications.ResNet50(input_tensor = inputs, include_top = False, weights = 'imagenet');
   results = tf.keras.layers.Conv2D(filters = hidden_dim, kernel_size = (1, 1), padding = 'same')(resnet50.get_layer('conv5_block3_out').output);
-  if position_embedding == 'sine':
-    results = PositionEmbeddingSine(hidden_dim);
-  elif position_embedding == 'learned':
-    results = PositionEmbeddingLearned(hidden_dim);
-  else: raise Exception('unknonw position embedding!');
-  
-  print(resnet50.get_layer('conv5_block3_out').output.shape)
+  results = ImageTransformer()(results);
+  # TODO:
 
 if __name__ == "__main__":
 
