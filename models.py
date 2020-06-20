@@ -109,13 +109,13 @@ def ImageTransformer(num_classes, num_layers = 2, num_queries = 100, d_model = 2
     coords = tf.keras.layers.Dense(units = 4, activation = tf.math.sigmoid)(results); # coord.shape = (batch, num_queries, 4)
     return tf.keras.Model(inputs = inputs, outputs = (classes, coords));
 
-def DETR(target_num = 100, num_layers = 6, hidden_dim = 256, position_embedding = 'sine'):
+def DETR(num_classes, target_num = 100, num_layers = 6, hidden_dim = 256, position_embedding = 'sine'):
 
   assert position_embedding in ['sine', 'learned'];
   inputs = tf.keras.Input((None, None, 3)); # inputs.shape = (batch, height, width, 3)
   resnet50 = tf.keras.applications.ResNet50(input_tensor = inputs, include_top = False, weights = 'imagenet');
   results = tf.keras.layers.Conv2D(filters = hidden_dim, kernel_size = (1, 1), padding = 'same')(resnet50.get_layer('conv5_block3_out').output);
-  classes, coords = ImageTransformer(num_layers = num_layers, num_queries = target_num, d_model = hidden_dim, position_embedding = position_embedding)(results);
+  classes, coords = ImageTransformer(num_classes, num_layers = num_layers, num_queries = target_num, d_model = hidden_dim, position_embedding = position_embedding)(results);
   return tf.keras.Model(inputs = inputs, outputs = (classes, coords));
 
 if __name__ == "__main__":
@@ -126,3 +126,4 @@ if __name__ == "__main__":
   print(b.shape)
   b = PositionEmbeddingLearned()(a);
   print(b.shape)
+  
