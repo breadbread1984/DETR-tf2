@@ -96,7 +96,7 @@ def ImageTransformer(num_classes, num_layers = 2, num_queries = 100, d_model = 2
     assert activation in ['relu', 'gelu'];
     # 1) inputs
     inputs = tf.keras.Input((None, None, d_model));                                                                                                          # inputs.shape = (batch, height, width, d_model)
-    dec_inputs = tf.keras.layers.Lambda(lambda x, n, d: tf.random.uniform(shape = (n, d), minval = -0.05, maxval = 0.05), arguments = {'n': num_queries, 'd': d_model})(inputs); # dec_inputs.shape = (batch, num_queries, d_model)
+    dec_inputs = tf.keras.layers.Lambda(lambda x, n, d: tf.random.uniform(shape = (tf.shape(x)[0], n, d), minval = -0.05, maxval = 0.05), arguments = {'n': num_queries, 'd': d_model})(inputs); # dec_inputs.shape = (batch, num_queries, d_model)
     enc_padding_mask = tf.keras.layers.Lambda(lambda x: tf.zeros(tf.shape(x)[0:3], dtype = tf.float32))(inputs);                                             # enc_padding_mask.shape = (batch, height, width)
     dec_padding_mask = tf.keras.layers.Lambda(lambda x, n: tf.zeros((tf.shape(x)[0], 1, 1, n), dtype = tf.float32), arguments = {'n': num_queries})(inputs); # dec_padding_mask.shape = (batch, 1, 1, num_queries)
     # 2) generate code
