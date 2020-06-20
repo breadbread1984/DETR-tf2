@@ -81,7 +81,7 @@ def ImageDecoder(num_layers, d_model, num_heads, code_dim, dropout_rate, activat
       embeddings = PositionEmbeddingLearned(d_model)(inputs);
     else: raise Exception('unknonw position embedding!');
     embeddings = tf.keras.layers.Reshape((-1, d_model))(embeddings); # outputs.shape = (batch, height * width, d_model)
-    look_ahead_mask = tf.keras.layers.Lambda(lambda x: tf.zeros((tf.shape(x[0])[0], 1, tf.shape(x[1])[1], tf.shape(x[0])[1]), dtype = tf.float32))([code, embedding]); # look_ahead_mask.shape = (batch, 1, embeding_length, code_length)
+    look_ahead_mask = tf.keras.layers.Lambda(lambda x: tf.zeros((tf.shape(x[0])[0], 1, tf.shape(x[1])[1], tf.shape(x[0])[1]), dtype = tf.float32))([code, embedding]); # look_ahead_mask.shape = (batch, 1, num_queries, code_length)
     padding_mask = tf.keras.layers.Reshape((1,1,-1))(padding_mask); # mask.shape = (batch, 1, 1(will be height * width), height * width)
     outputs = tf.keras.layers.Dropout(rate = dropout_rate)(embeddings); # outputs.shape = (batch, decode_length, dimension)
     # 3) multiple decode layers
@@ -89,30 +89,35 @@ def ImageDecoder(num_layers, d_model, num_heads, code_dim, dropout_rate, activat
         outputs = DecoderLayer(d_model, num_heads, code_dim, dropout_rate, activation)([outputs, code, look_ahead_mask, padding_mask]); # outputs.shape = (batch, decode_length, dimension)
     return tf.keras.Model(inputs = (inputs, code, padding_mask), outputs = outputs);
 
-def ImageTransformer(num_layers = 2, d_model = 256, num_heads = 8, code_dim = 512, dropout_rate = 0.1, activation = 'relu', position_embedding = 'sine'):
+def ImageTransformer(num_classes, num_layers = 2, num_queries = 100, d_model = 256, num_heads = 8, code_dim = 512, dropout_rate = 0.1, activation = 'relu', position_embedding = 'sine'):
     
+    # NOTE: num_queries is the number of object the model outputs
     assert activation in ['relu', 'gelu'];
     # 1) inputs
     inputs = tf.keras.Input((None, None, d_model));                                                                    # inputs.shape = (batch, height, width, d_model)
-    dec_inputs = tf.keras.layers.Lambda(lambda x: tf.zeros_like(x, dtype = tf.float32))(inputs);                       # dec_inputs.shape = (batch, decode_length)
+    dec_inputs = tf.keras.layers.Lambda(lambda x, n, d: tf.random.uniform(shape = (n, d), minval = -0.05, maxval = 0.05), arguments = {'n': num_queries, 'd': d_model})(inputs); # dec_inputs.shape = (batch, num_queries, d_model)
     enc_padding_mask = tf.keras.layers.Lambda(lambda x: tf.zeros(tf.shape(x)[0:3], dtype = tf.float32))(inputs);       # enc_padding_mask.shape = (batch, height, width)
     dec_padding_mask = tf.keras.layers.Lambda(lambda x: tf.zeros(tf.shape(x)[0:3], dtype = tf.float32))(inputs);       # dec_padding_mask.shape = (batch, height, width)
     # 2) generate code
     code = ImageEncoder(num_layers, d_model, num_heads, code_dim, dropout_rate, activation, position_embedding)([inputs, enc_padding_mask]); # code.shape = (batch, encode_length, dimension)
-    decoded = ImageDecoder(num_heads, d_model, num_heads, code_dim, dropout_rate, activation, position_embedding)([dec_inputs, code, dec_padding_mask]); # decoded.shape = (batch, decode_length, dimension)
+    decoded = ImageDecoder(num_heads, d_model, num_heads, code_dim, dropout_rate, activation, position_embedding)([dec_inputs, code, dec_padding_mask]); # decoded.shape = (batch, num_queries, dimension)
     # 3) output
-    # TODO: output dim
-    outputs = tf.keras.layers.Dense(units = vocab_size)(decoded); # outputs.shape = (batch, decode_length, vocab_size)
-    return tf.keras.Model(inputs = inputs, outputs = outputs);
+    # predict class
+    classes = tf.keras.layers.Dense(units = num_classes + 1)(decoded); # outputs.shape = (batch, num_queries, num_classes + 1)
+    # predict coordinates
+    results = tf.keras.layers.Dense(units = d_model, activation = tf.keras.layers.ReLU())(decoded);
+    results = tf.keras.layers.Dense(units = d_model, activation = tf.keras.layers.ReLU())(results);
+    coords = tf.keras.layers.Dense(units = 4, activation = tf.math.sigmoid)(results); # coord.shape = (batch, num_queries, 4)
+    return tf.keras.Model(inputs = inputs, outputs = (classes, coords));
 
-def DETR(hidden_dim = 64, position_embedding = 'sine'):
+def DETR(target_num = 100, num_layers = 6, hidden_dim = 256, position_embedding = 'sine'):
 
   assert position_embedding in ['sine', 'learned'];
   inputs = tf.keras.Input((None, None, 3)); # inputs.shape = (batch, height, width, 3)
   resnet50 = tf.keras.applications.ResNet50(input_tensor = inputs, include_top = False, weights = 'imagenet');
   results = tf.keras.layers.Conv2D(filters = hidden_dim, kernel_size = (1, 1), padding = 'same')(resnet50.get_layer('conv5_block3_out').output);
-  results = ImageTransformer(d_model = hidden_dim, position_embedding = position_embedding)(results);
-  # TODO:
+  classes, coords = ImageTransformer(num_layers = num_layers, num_queries = target_num, d_model = hidden_dim, position_embedding = position_embedding)(results);
+  return tf.keras.Model(inputs = inputs, outputs = (classes, coords));
 
 if __name__ == "__main__":
 
