@@ -73,7 +73,7 @@ def ImageDecoder(num_layers, d_model, num_heads, code_dim, dropout_rate, activat
     # 1) inputs
     inputs = tf.keras.Input((None, None, d_model)); # inputs.shape = (batch, height, width, d_model)
     code = tf.keras.Input((None, d_model));            # code.shape = (batch, encode_length, dimension)
-    padding_mask = tf.keras.Input((None, None));       # padding_mask.shape = (batch, height, width)
+    padding_mask = tf.keras.Input((1, 1, None));       # padding_mask.shape = (batch, 1, 1, num_queries)
     # 2) token to positional embedding
     if position_embedding == 'sine':
       embeddings = PositionEmbeddingSine(d_model)(inputs); # embeddings.shape = (batch, )
@@ -82,7 +82,6 @@ def ImageDecoder(num_layers, d_model, num_heads, code_dim, dropout_rate, activat
     else: raise Exception('unknonw position embedding!');
     embeddings = tf.keras.layers.Reshape((-1, d_model))(embeddings); # outputs.shape = (batch, height * width, d_model)
     look_ahead_mask = tf.keras.layers.Lambda(lambda x: tf.zeros((tf.shape(x[0])[0], 1, tf.shape(x[1])[1], tf.shape(x[0])[1]), dtype = tf.float32))([code, embedding]); # look_ahead_mask.shape = (batch, 1, num_queries, code_length)
-    padding_mask = tf.keras.layers.Reshape((1,1,-1))(padding_mask); # mask.shape = (batch, 1, 1(will be height * width), height * width)
     outputs = tf.keras.layers.Dropout(rate = dropout_rate)(embeddings); # outputs.shape = (batch, decode_length, dimension)
     # 3) multiple decode layers
     for i in range(num_layers):
@@ -94,10 +93,10 @@ def ImageTransformer(num_classes, num_layers = 2, num_queries = 100, d_model = 2
     # NOTE: num_queries is the number of object the model outputs
     assert activation in ['relu', 'gelu'];
     # 1) inputs
-    inputs = tf.keras.Input((None, None, d_model));                                                                    # inputs.shape = (batch, height, width, d_model)
+    inputs = tf.keras.Input((None, None, d_model));                                                                                                          # inputs.shape = (batch, height, width, d_model)
     dec_inputs = tf.keras.layers.Lambda(lambda x, n, d: tf.random.uniform(shape = (n, d), minval = -0.05, maxval = 0.05), arguments = {'n': num_queries, 'd': d_model})(inputs); # dec_inputs.shape = (batch, num_queries, d_model)
-    enc_padding_mask = tf.keras.layers.Lambda(lambda x: tf.zeros(tf.shape(x)[0:3], dtype = tf.float32))(inputs);       # enc_padding_mask.shape = (batch, height, width)
-    dec_padding_mask = tf.keras.layers.Lambda(lambda x: tf.zeros(tf.shape(x)[0:3], dtype = tf.float32))(inputs);       # dec_padding_mask.shape = (batch, height, width)
+    enc_padding_mask = tf.keras.layers.Lambda(lambda x: tf.zeros(tf.shape(x)[0:3], dtype = tf.float32))(inputs);                                             # enc_padding_mask.shape = (batch, height, width)
+    dec_padding_mask = tf.keras.layers.Lambda(lambda x, n: tf.zeros((tf.shape(x)[0], 1, 1, n), dtype = tf.float32), arguments = {'n': num_queries})(inputs); # dec_padding_mask.shape = (batch, 1, 1, num_queries)
     # 2) generate code
     code = ImageEncoder(num_layers, d_model, num_heads, code_dim, dropout_rate, activation, position_embedding)([inputs, enc_padding_mask]); # code.shape = (batch, encode_length, dimension)
     decoded = ImageDecoder(num_heads, d_model, num_heads, code_dim, dropout_rate, activation, position_embedding)([dec_inputs, code, dec_padding_mask]); # decoded.shape = (batch, num_queries, dimension)
