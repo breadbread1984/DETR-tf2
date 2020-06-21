@@ -106,7 +106,7 @@ def ImageTransformer(num_classes, num_layers = 2, num_queries = 100, d_model = 2
   decoded = ImageDecoder(num_layers, d_model, num_heads, code_dim, dropout_rate, activation, position_embedding)([dec_inputs, code, dec_padding_mask]); # decoded.shape = (batch, num_queries, d_model)
   # 3) output
   # predict class
-  classes = tf.keras.layers.Dense(units = num_classes + 1)(decoded); # outputs.shape = (batch, num_queries, num_classes + 1)
+  classes = tf.keras.layers.Dense(units = num_classes + 1, activation = tf.keras.layers.Softmax())(decoded); # outputs.shape = (batch, num_queries, num_classes + 1)
   # predict coordinates
   results = tf.keras.layers.Dense(units = d_model, activation = tf.keras.layers.ReLU())(decoded);
   results = tf.keras.layers.Dense(units = d_model, activation = tf.keras.layers.ReLU())(results);
@@ -121,6 +121,10 @@ def DETR(num_classes, target_num = 100, num_layers = 6, hidden_dim = 256, code_d
   results = tf.keras.layers.Conv2D(filters = hidden_dim, kernel_size = (1, 1), padding = 'same')(resnet50.get_layer('conv5_block3_out').output);
   classes, coords = ImageTransformer(num_classes, num_layers = num_layers, num_queries = target_num, d_model = hidden_dim, code_dim = code_dim, position_embedding = position_embedding)(results);
   return tf.keras.Model(inputs = inputs, outputs = (classes, coords));
+
+def HungarianMatcher():
+
+  
 
 if __name__ == "__main__":
 
