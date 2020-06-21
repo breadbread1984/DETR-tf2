@@ -91,7 +91,7 @@ def ImageDecoder(num_layers, d_model, num_heads, code_dim, dropout_rate, activat
     outputs = DecoderLayer(d_model, num_heads, code_dim, dropout_rate, activation)([outputs, code_with_pos, look_ahead_mask, padding_mask]); # outputs.shape = (batch, decode_length, d_model)
   return tf.keras.Model(inputs = (inputs, code, padding_mask), outputs = outputs);
 
-def ImageTransformer(num_classes, num_layers = 2, num_queries = 100, d_model = 256, num_heads = 8, code_dim = 512, dropout_rate = 0.1, activation = 'relu', position_embedding = 'sine'):
+def ImageTransformer(num_classes, num_layers = 2, num_queries = 100, d_model = 256, num_heads = 8, code_dim = 2048, dropout_rate = 0.1, activation = 'relu', position_embedding = 'sine'):
     
   # NOTE: num_queries is the number of object the model outputs
   assert activation in ['relu', 'gelu'];
@@ -113,24 +113,21 @@ def ImageTransformer(num_classes, num_layers = 2, num_queries = 100, d_model = 2
   coords = tf.keras.layers.Dense(units = 4, activation = tf.math.sigmoid)(results); # coord.shape = (batch, num_queries, 4)
   return tf.keras.Model(inputs = inputs, outputs = (classes, coords));
 
-def DETR(num_classes, target_num = 100, num_layers = 6, hidden_dim = 256, position_embedding = 'sine'):
+def DETR(num_classes, target_num = 100, num_layers = 6, hidden_dim = 256, code_dim = 2048, position_embedding = 'sine'):
 
   assert position_embedding in ['sine', 'learned'];
   inputs = tf.keras.Input((None, None, 3)); # inputs.shape = (batch, height, width, 3)
   resnet50 = tf.keras.applications.ResNet50(input_tensor = inputs, include_top = False, weights = 'imagenet');
   results = tf.keras.layers.Conv2D(filters = hidden_dim, kernel_size = (1, 1), padding = 'same')(resnet50.get_layer('conv5_block3_out').output);
-  classes, coords = ImageTransformer(num_classes, num_layers = num_layers, num_queries = target_num, d_model = hidden_dim, position_embedding = position_embedding)(results);
+  classes, coords = ImageTransformer(num_classes, num_layers = num_layers, num_queries = target_num, d_model = hidden_dim, code_dim = code_dim, position_embedding = position_embedding)(results);
   return tf.keras.Model(inputs = inputs, outputs = (classes, coords));
 
 if __name__ == "__main__":
 
-  assert tf.executing_eagerly();
-  a = tf.constant(np.random.normal(size = (8, 10, 20, 2048)));
-  b = PositionEmbeddingSine(2048)(a);
-  b = PositionEmbeddingLearned(2048)(a);
-  
+  assert tf.executing_eagerly();  
   detr = DETR(50);
   a = tf.constant(np.random.normal(size = (8, 480, 640, 3)), dtype = tf.float32);
   classes, coords = detr(a);
   print(classes.shape, coords.shape)
   detr.save('detr.h5');
+  tf.keras.utils.plot_model(model = detr, to_file = 'DETR.png', show_shapes = True, dpi = 64);
