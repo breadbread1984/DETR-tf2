@@ -30,6 +30,7 @@ def PositionEmbeddingSine(hidden_dim = 64, normalize = True, eps = 1e-6):
 
 def PositionEmbeddingLearned(hidden_dim = 256):
 
+  # NOTE: the learned positional embedding can only support image as large as 1600 x 1600
   d_model = hidden_dim // 2;
   inputs = tf.keras.Input((None, None, hidden_dim));
   y_positions = tf.keras.layers.Lambda(lambda x: tf.expand_dims(tf.range(tf.cast(tf.shape(x)[1], dtype = tf.float32)), axis = 0))(inputs); # y_positions.shape = (1, height)

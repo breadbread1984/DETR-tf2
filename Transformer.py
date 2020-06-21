@@ -61,7 +61,7 @@ def PositionalEncoding(d_model):
     # 3) dimension info
     j = tf.keras.layers.Lambda(lambda x: tf.expand_dims(tf.range(tf.cast(tf.shape(x)[2], dtype = tf.float32), dtype = tf.float32),0))(inputs); # j.shape = (1, dimension)
     i = tf.keras.layers.Lambda(lambda x: x // 2)(j);                                                                                           # i.shape = (1, dimension)
-    power = tf.keras.layers.Lambda(lambda x: 2 * x[0] / tf.cast(tf.shape(x[1])[2], dtype = tf.float32))([i, inputs]);                          # power.shape = (1, dimension)
+    power = tf.keras.layers.Lambda(lambda x, d: 2 * x / tf.cast(d, dtype = tf.float32), arguments = {'d': d_model})(i);                        # power.shape = (1, dimension)
     # 4) position & dimension info
     angles = tf.keras.layers.Lambda(lambda x: x[0] / tf.math.pow(10000.,x[1]))([positions, power]);                                            # angles.shape = (length, dimension)
     sines = tf.keras.layers.Lambda(lambda x: tf.math.sin(x[:,0::2]))(angles);                                                                  # sines.shape = (length, dimension // 2)
