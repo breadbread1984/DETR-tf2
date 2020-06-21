@@ -96,11 +96,12 @@ def ImageTransformer(num_classes, num_layers = 2, num_queries = 100, d_model = 2
   assert activation in ['relu', 'gelu'];
   # 1) inputs
   inputs = tf.keras.Input((None, None, d_model));                                                                                                          # inputs.shape = (batch, height, width, d_model)
-  dec_inputs = tf.keras.layers.Lambda(lambda x, n, d: tf.random.uniform(shape = (tf.shape(x)[0], n, d), minval = -0.05, maxval = 0.05), arguments = {'n': num_queries, 'd': d_model})(inputs); # dec_inputs.shape = (batch, num_queries, d_model)
+  queries = tf.keras.layers.Lambda(lambda x, n: tf.tile(tf.expand_dims(tf.range(tf.cast(n, dtype = tf.float32)), axis = 0), (tf.shape(x)[0], 1)), arguments = {'n': num_queries})(inputs); # queries.shape = (batch, num_queries)
+  dec_inputs = tf.keras.layers.Embedding(num_queries, d_model)(queries);                                                                                   # dec_inputs.shape = (batch, num_queries, d_model)
   enc_padding_mask = tf.keras.layers.Lambda(lambda x: tf.zeros(tf.shape(x)[0:3], dtype = tf.float32))(inputs);                                             # enc_padding_mask.shape = (batch, height, width)
-  dec_padding_mask = tf.keras.layers.Lambda(lambda x: tf.zeros((tf.shape(x)[0], 1, 1, tf.shape(x)[1] * tf.shape(x)[2]), dtype = tf.float32))(inputs); # dec_padding_mask.shape = (batch, 1, 1(will be num_queries), height * width)
+  dec_padding_mask = tf.keras.layers.Lambda(lambda x: tf.zeros((tf.shape(x)[0], 1, 1, tf.shape(x)[1] * tf.shape(x)[2]), dtype = tf.float32))(inputs);      # dec_padding_mask.shape = (batch, 1, 1(will be num_queries), height * width)
   # 2) generate code
-  code = ImageEncoder(num_layers, d_model, num_heads, code_dim, dropout_rate, activation, position_embedding)([inputs, enc_padding_mask]); # code.shape = (batch, height, width, d_model)
+  code = ImageEncoder(num_layers, d_model, num_heads, code_dim, dropout_rate, activation, position_embedding)([inputs, enc_padding_mask]);              # code.shape = (batch, height, width, d_model)
   decoded = ImageDecoder(num_layers, d_model, num_heads, code_dim, dropout_rate, activation, position_embedding)([dec_inputs, code, dec_padding_mask]); # decoded.shape = (batch, num_queries, d_model)
   # 3) output
   # predict class
@@ -130,4 +131,5 @@ if __name__ == "__main__":
   detr = DETR(50);
   a = tf.constant(np.random.normal(size = (8, 480, 640, 3)), dtype = tf.float32);
   classes, coords = detr(a);
+  print(classes.shape, coords.shape)
   detr.save('detr.h5');
