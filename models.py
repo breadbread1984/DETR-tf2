@@ -122,16 +122,16 @@ def DETR(num_classes, target_num = 100, num_layers = 6, hidden_dim = 256, code_d
   classes, coords = ImageTransformer(num_classes, num_layers = num_layers, num_queries = target_num, d_model = hidden_dim, code_dim = code_dim, position_embedding = position_embedding)(results);
   return tf.keras.Model(inputs = inputs, outputs = (classes, coords));
 
-def HungarianMatcher(num_classes):
+def HungarianMatcher(num_classes, pos_weight = 1., iou_weight = 1., class_weight = 1.):
 
   bbox_pred = tf.keras.Input((None, 4)); # bbox_pred.shape = (batch = 1, num_queries, 4)
   labels_pred = tf.keras.Input((None, num_classes + 1)); # labels_pred.shape = (batch = 1, num_queries, num_classes + 1)
   bbox_gt = tf.keras.Input((None, 4)); # bbox_gt.shape = (batch = 1, num_targets, 4)
   labels_gt = tf.keras.Input((None, )); # labels_gt.shape = (batch = 1, num_targets)
   # 1) get 1-norm of box prediction
-  bbox_pred_reshape = tf.keras.layers.Lambda(lambda x: tf.expand_dims(tf.reshape(x, (-1. 4)), axis = 1))(bbox_pred); # bbox_pred_reshape.shape = (batch * num_queries, 1, 4)
-  bbox_gt_reshape = tf.keras.layers.Lambda(lambda x: tf.expand_dims(tf.reshape(x, (-1, 4)), axis = 0))(bbox_gt); # bbox_gt_reshape.shape = (1, batch * num_targets, 4)
-  bbox_loss = tf.keras.layers.Lambda(lambda x: tf.norm(x[0] - x[1], ord = 1, axis = -1))([bbox_pred_reshape, bbox_gt_reshape]); # bbox_loss.shape = (batch * num_queries, batch * num_targets)
+  bbox_pred_reshape = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x, axis = -2))(bbox_pred); # bbox_pred_reshape.shape = (batch, num_queries, 1, 4)
+  bbox_gt_reshape = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x, axis = -3))(bbox_gt); # bbox_gt_reshape.shape = (batch, 1, num_targets, 4)
+  bbox_loss = tf.keras.layers.Lambda(lambda x: tf.norm(x[0] - x[1], ord = 1, axis = -1))([bbox_pred_reshape, bbox_gt_reshape]); # bbox_loss.shape = (batch, num_queries, num_targets)
   # 2) get iou = intersect / (area_a + area_b - intersect)
   bbox_pred_ul = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x[..., 0:2] - 0.5 * x[..., 2:4], axis = -2))(bbox_pred); # bbox_pred_ul.shape = (batch, num_queries, 1, 2)
   bbox_pred_dr = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x[..., 0:2] + 0.5 * x[..., 2:4], axis = -2))(bbox_pred); # bbox_pred_dr.shape = (batch, num_queries, 1, 2)
@@ -150,10 +150,23 @@ def HungarianMatcher(num_classes):
   upperleft = tf.keras.layers.Lambda(lambda x: tf.math.minimum(x[0], x[1]))([bbox_pred_ul, bbox_gt_ul]); # upperleft.shape = (batch, num_queries, num_targets, 2)
   downright = tf.keras.layers.Lambda(lambda x: tf.math.maximum(x[0], x[1]))([bbox_pred_dr, bbox_gt_dr]); # downright.shape = (batch, num_queries, num_targets, 2)
   bounding_wh = tf.keras.layers.Lambda(lambda x: tf.math.maximum(x[1] - x[0] + 1, 0.))([upperleft, downright]); # intersect_wh.shape = (batch, num_queries, num_targets, 2)
-  bounding_area = tf.keras.layers.Lambda(lambda x: x[...,0] * x[...,1])(bounding_wh); # bounding_area.shape = (batch,num_queries, num_targets)
+  bounding_area = tf.keras.layers.Lambda(lambda x: x[...,0] * x[...,1])(bounding_wh); # bounding_area.shape = (batch, num_queries, num_targets)
   bg_ratio = tf.keras.layers.Lambda(lambda x: (x[0] - (x[2] + x[3] - x[1])) / x[0])([bounding_area, intersect_area, bbox_pred_area, bbox_gt_area]); # bg_ratio.shape = (batch, num_queries, num_targets)
   # 4) get iou loss
-  iou_loss = tf.keras.layers.Lambda(lambda x: -(x[0] - x[1]))([iou, bg_ratio]);
+  iou_loss = tf.keras.layers.Lambda(lambda x: -(x[0] - x[1]))([iou, bg_ratio]); # iou_loss.shape = (batch, num_queries, num_targets)
+  # 5) get class loss
+  def fn(x):
+    labels_pred_slice = x[0]; # labels_pred_slice.shape = (num_queries, num_classes + 1)
+    labels_gt_slice = x[1]; # labels_gt_slices.shape = (num_targets)
+    y = tf.reshape(tf.range(tf.cast(tf.shape(labels_pred_slice)[0], dtype = tf.float32)), (-1, 1, 1)); # y.shape = (num_queries, 1, 1)
+    x = tf.reshape(labels_gt_slice, (1, -1, 1)); # x.shape = (1, num_targets, 1)
+    yx = tf.concat([y,x], axis = -1); # yx.shape = (num_queries, num_targets, 2)
+    values = tf.gather_nd(labels_pred_slice, yx); # values.shape = (num_queries, num_targets)
+    return values;
+  class_loss = tf.keras.layers.Lambda(lambda x: -tf.map_fn(fn, (x[0], x[1])))([labels_pred, labels_gt]); # class_loss.shape = (batch, num_queries, num_targets)
+  # 6) sum
+  loss = tf.keras.layers.Lambda(lambda x, p, i, c: p * x[0] + i * x[1] + c * x[2], arguments = {'p': pos_weight, 'i': iou_weight, 'c': class_weight})([bbox_loss, iou_loss, class_loss]); # loss.shape = (batch, num_queries, num_targets)
+  
 
 if __name__ == "__main__":
 
