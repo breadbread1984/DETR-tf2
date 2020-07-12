@@ -158,14 +158,15 @@ def HungarianMatcher(num_classes, pos_weight = 1., iou_weight = 1., class_weight
   def fn(x):
     labels_pred_slice = x[0]; # labels_pred_slice.shape = (num_queries, num_classes + 1)
     labels_gt_slice = x[1]; # labels_gt_slices.shape = (num_targets)
-    y = tf.reshape(tf.range(tf.cast(tf.shape(labels_pred_slice)[0], dtype = tf.float32)), (-1, 1, 1)); # y.shape = (num_queries, 1, 1)
-    x = tf.reshape(labels_gt_slice, (1, -1, 1)); # x.shape = (1, num_targets, 1)
+    y = tf.tile(tf.reshape(tf.range(tf.cast(tf.shape(labels_pred_slice)[0], dtype = tf.float32)), (-1, 1, 1)), (1, tf.shape(labels_gt_slice)[0], 1)); # y.shape = (num_queries, num_targets, 1)
+    x = tf.tile(tf.reshape(labels_gt_slice, (1, -1, 1)), (tf.shape(labels_pred_slice)[0], 1, 1)); # x.shape = (num_queries, num_targets, 1)
     yx = tf.concat([y,x], axis = -1); # yx.shape = (num_queries, num_targets, 2)
     values = tf.gather_nd(labels_pred_slice, yx); # values.shape = (num_queries, num_targets)
     return values;
   class_loss = tf.keras.layers.Lambda(lambda x: -tf.map_fn(fn, (x[0], x[1])))([labels_pred, labels_gt]); # class_loss.shape = (batch, num_queries, num_targets)
   # 6) sum
   loss = tf.keras.layers.Lambda(lambda x, p, i, c: p * x[0] + i * x[1] + c * x[2], arguments = {'p': pos_weight, 'i': iou_weight, 'c': class_weight})([bbox_loss, iou_loss, class_loss]); # loss.shape = (batch, num_queries, num_targets)
+  # 7) assign num_targets works to num_queries workers
   
 
 if __name__ == "__main__":
