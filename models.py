@@ -128,7 +128,7 @@ def HungarianMatcher(num_classes, pos_weight = 1., iou_weight = 1., class_weight
   bbox_pred = tf.keras.Input((None, 4)); # bbox_pred.shape = (batch = 1, num_queries, 4)
   labels_pred = tf.keras.Input((None, num_classes + 1)); # labels_pred.shape = (batch = 1, num_queries, num_classes + 1)
   bbox_gt = tf.keras.Input((None, 4)); # bbox_gt.shape = (batch = 1, num_targets, 4)
-  labels_gt = tf.keras.Input((None, ), dtype = tf.int32); # labels_gt.shape = (batch = 1, num_targets)
+  labels_gt = tf.keras.Input((None, )); # labels_gt.shape = (batch = 1, num_targets)
   # 1) get 1-norm of box prediction
   bbox_pred_reshape = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x, axis = -2))(bbox_pred); # bbox_pred_reshape.shape = (batch, num_queries, 1, 4)
   bbox_gt_reshape = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x, axis = -3))(bbox_gt); # bbox_gt_reshape.shape = (batch, 1, num_targets, 4)
@@ -158,7 +158,7 @@ def HungarianMatcher(num_classes, pos_weight = 1., iou_weight = 1., class_weight
   # 5) get class loss
   def fn(x):
     labels_pred_slice = x[0]; # labels_pred_slice.shape = (num_queries, num_classes + 1)
-    labels_gt_slice = x[1]; # labels_gt_slices.shape = (num_targets)
+    labels_gt_slice = tf.cast(x[1], dtype = tf.int32); # labels_gt_slices.shape = (num_targets)
     y = tf.tile(tf.reshape(tf.range(tf.shape(labels_pred_slice)[0]), (-1, 1, 1)), (1, tf.shape(labels_gt_slice)[0], 1)); # y.shape = (num_queries, num_targets, 1)
     x = tf.tile(tf.reshape(labels_gt_slice, (1, -1, 1)), (tf.shape(labels_pred_slice)[0], 1, 1)); # x.shape = (num_queries, num_targets, 1)
     yx = tf.concat([y,x], axis = -1); # yx.shape = (num_queries, num_targets, 2)
