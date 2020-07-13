@@ -156,15 +156,19 @@ def HungarianMatcher(num_classes, pos_weight = 1., iou_weight = 1., class_weight
   # 4) get iou loss
   iou_loss = tf.keras.layers.Lambda(lambda x: -(x[0] - x[1]))([iou, bg_ratio]); # iou_loss.shape = (batch, num_queries, num_targets)
   # 5) get class loss
-  def fn(x):
-    labels_pred_slice = x[0]; # labels_pred_slice.shape = (num_queries, num_classes + 1)
-    labels_gt_slice = tf.cast(x[1], dtype = tf.int32); # labels_gt_slices.shape = (num_targets)
+  def cond(i, labels_pred, labels_gt, loss):
+    return i < tf.shape(labels_pred)[0];
+  def body(i, labels_pred, labels_gt, loss):
+    labels_pred_slice = labels_pred[i,...]; # labels_pred_slice.shape = (num_queries, num_classes + 1)
+    labels_gt_slice = tf.cast(labels_gt[i,...], dtype = tf.int32); # labels_gt_slices.shape = (num_targets)
     y = tf.tile(tf.reshape(tf.range(tf.shape(labels_pred_slice)[0]), (-1, 1, 1)), (1, tf.shape(labels_gt_slice)[0], 1)); # y.shape = (num_queries, num_targets, 1)
     x = tf.tile(tf.reshape(labels_gt_slice, (1, -1, 1)), (tf.shape(labels_pred_slice)[0], 1, 1)); # x.shape = (num_queries, num_targets, 1)
     yx = tf.concat([y,x], axis = -1); # yx.shape = (num_queries, num_targets, 2)
-    values = tf.gather_nd(labels_pred_slice, yx); # values.shape = (num_queries, num_targets)
-    return values;
-  class_loss = tf.keras.layers.Lambda(lambda x: -tf.map_fn(fn, (x[0], x[1])))([labels_pred, labels_gt]); # class_loss.shape = (batch, num_queries, num_targets)
+    values = tf.expand_dims(tf.gather_nd(labels_pred_slice, yx), axis = 0); # values.shape = (1, num_queries, num_targets)
+    loss = tf.concat([loss, values], axis = 0); # loss.shape = (n, num_queries, num_targets)
+    return i + 1, labels_pred, labels_gt, loss;
+  class_loss = tf.keras.layers.Lambda(lambda x: -tf.while_loop(cond, body, loop_vars = [0, x[0], x[1], tf.zeros((0, tf.shape(x[0])[1], tf.shape(x[1])[1]))], 
+                                                               shape_invariants = [tf.TensorShape([]), x[0].get_shape(), x[1].get_shape(), tf.TensorShape([None, x[0].shape[1], x[1].shape[1]])])[3])([labels_pred, labels_gt]);
   # 6) sum
   cost = tf.keras.layers.Lambda(lambda x, p, i, c: p * x[0] + i * x[1] + c * x[2], arguments = {'p': pos_weight, 'i': iou_weight, 'c': class_weight})([bbox_loss, iou_loss, class_loss]); # cost.shape = (batch, num_queries, num_targets)
   # 7) assign num_targets assignments to num_queries workers
