@@ -2,6 +2,7 @@
 
 from math import pi;
 import numpy as np;
+from scipy.optimize import linear_sum_assignment;
 import tensorflow as tf;
 from Transformer import EncoderLayer, DecoderLayer;
 
@@ -127,7 +128,7 @@ def HungarianMatcher(num_classes, pos_weight = 1., iou_weight = 1., class_weight
   bbox_pred = tf.keras.Input((None, 4)); # bbox_pred.shape = (batch = 1, num_queries, 4)
   labels_pred = tf.keras.Input((None, num_classes + 1)); # labels_pred.shape = (batch = 1, num_queries, num_classes + 1)
   bbox_gt = tf.keras.Input((None, 4)); # bbox_gt.shape = (batch = 1, num_targets, 4)
-  labels_gt = tf.keras.Input((None, )); # labels_gt.shape = (batch = 1, num_targets)
+  labels_gt = tf.keras.Input((None, ), dtype = tf.int32); # labels_gt.shape = (batch = 1, num_targets)
   # 1) get 1-norm of box prediction
   bbox_pred_reshape = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x, axis = -2))(bbox_pred); # bbox_pred_reshape.shape = (batch, num_queries, 1, 4)
   bbox_gt_reshape = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x, axis = -3))(bbox_gt); # bbox_gt_reshape.shape = (batch, 1, num_targets, 4)
@@ -144,7 +145,7 @@ def HungarianMatcher(num_classes, pos_weight = 1., iou_weight = 1., class_weight
   bbox_pred_wh = tf.keras.layers.Lambda(lambda x: tf.math.maximum(x[1] - x[0] + 1, 0.))([bbox_pred_ul, bbox_pred_dr]); # bbox_pred_wh.shape = (batch, num_queries, 1, 2)
   bbox_pred_area = tf.keras.layers.Lambda(lambda x: x[...,0] * x[...,1])(bbox_pred_wh); # bbox_pred_area.shape = (batch, num_queries, 1)
   bbox_gt_wh = tf.keras.layers.Lambda(lambda x: tf.math.maximum(x[1] - x[0] + 1, 0.))([bbox_gt_ul, bbox_gt_dr]); # bbox_gt_wh.shape = (batch, 1, num_targets, 2)
-  bbox_gt_area = tf.keras.layers,Lambda(lambda x: x[...,0] * x[...,1])(bbox_gt_wh); # bbox_gt_area.shape = (batch, 1, num_targets)
+  bbox_gt_area = tf.keras.layers.Lambda(lambda x: x[...,0] * x[...,1])(bbox_gt_wh); # bbox_gt_area.shape = (batch, 1, num_targets)
   iou = tf.keras.layers.Lambda(lambda x: x[0] / (x[1] + x[2] - x[0]))([intersect_area, bbox_pred_area, bbox_gt_area]); # iou.shape = (batch, num_queries, num_targets)
   # 3) get bg_ratio = [bounding - (area_a + area_b - intersect)] / bounding
   upperleft = tf.keras.layers.Lambda(lambda x: tf.math.minimum(x[0], x[1]))([bbox_pred_ul, bbox_gt_ul]); # upperleft.shape = (batch, num_queries, num_targets, 2)
@@ -158,16 +159,22 @@ def HungarianMatcher(num_classes, pos_weight = 1., iou_weight = 1., class_weight
   def fn(x):
     labels_pred_slice = x[0]; # labels_pred_slice.shape = (num_queries, num_classes + 1)
     labels_gt_slice = x[1]; # labels_gt_slices.shape = (num_targets)
-    y = tf.tile(tf.reshape(tf.range(tf.cast(tf.shape(labels_pred_slice)[0], dtype = tf.float32)), (-1, 1, 1)), (1, tf.shape(labels_gt_slice)[0], 1)); # y.shape = (num_queries, num_targets, 1)
+    y = tf.tile(tf.reshape(tf.range(tf.shape(labels_pred_slice)[0]), (-1, 1, 1)), (1, tf.shape(labels_gt_slice)[0], 1)); # y.shape = (num_queries, num_targets, 1)
     x = tf.tile(tf.reshape(labels_gt_slice, (1, -1, 1)), (tf.shape(labels_pred_slice)[0], 1, 1)); # x.shape = (num_queries, num_targets, 1)
     yx = tf.concat([y,x], axis = -1); # yx.shape = (num_queries, num_targets, 2)
     values = tf.gather_nd(labels_pred_slice, yx); # values.shape = (num_queries, num_targets)
     return values;
   class_loss = tf.keras.layers.Lambda(lambda x: -tf.map_fn(fn, (x[0], x[1])))([labels_pred, labels_gt]); # class_loss.shape = (batch, num_queries, num_targets)
   # 6) sum
-  loss = tf.keras.layers.Lambda(lambda x, p, i, c: p * x[0] + i * x[1] + c * x[2], arguments = {'p': pos_weight, 'i': iou_weight, 'c': class_weight})([bbox_loss, iou_loss, class_loss]); # loss.shape = (batch, num_queries, num_targets)
-  # 7) assign num_targets works to num_queries workers
-  
+  cost = tf.keras.layers.Lambda(lambda x, p, i, c: p * x[0] + i * x[1] + c * x[2], arguments = {'p': pos_weight, 'i': iou_weight, 'c': class_weight})([bbox_loss, iou_loss, class_loss]); # cost.shape = (batch, num_queries, num_targets)
+  # 7) assign num_targets assignments to num_queries workers
+  def assign(cost):
+    row_ind, col_ind = linear_sum_assignment(cost.numpy());
+    ind = tf.stack([row_ind,col_ind], axis = -1); # ind.shape = (num_targets, 2)
+    ind = tf.cast(ind, dtype = tf.int32);
+    return ind;
+  ind = tf.keras.layers.Lambda(lambda x: tf.map_fn(lambda y: tf.py_function(assign, inp = [y], Tout = [tf.int32]), x))(cost);
+  return tf.keras.Model(inputs = (bbox_pred, labels_pred, bbox_gt, labels_gt), outputs = ind);
 
 if __name__ == "__main__":
 
@@ -177,4 +184,6 @@ if __name__ == "__main__":
   classes, coords = detr(a);
   print(classes.shape, coords.shape)
   detr.save('detr.h5');
-  tf.keras.utils.plot_model(model = detr, to_file = 'DETR.png', show_shapes = True, dpi = 64);
+  matcher = HungarianMatcher(100);
+  matcher.save('matcher.h5');
+  #tf.keras.utils.plot_model(model = detr, to_file = 'DETR.png', show_shapes = True, dpi = 64);
