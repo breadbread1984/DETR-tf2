@@ -123,12 +123,32 @@ def DETR(num_classes, target_num = 100, num_layers = 6, hidden_dim = 256, code_d
   classes, coords = ImageTransformer(num_classes, num_layers = num_layers, num_queries = target_num, d_model = hidden_dim, code_dim = code_dim, position_embedding = position_embedding)(results);
   return tf.keras.Model(inputs = inputs, outputs = (classes, coords));
 
-def HungarianMatcher(num_classes, pos_weight = 1., iou_weight = 1., class_weight = 1.):
+def HungarianCostBatch(batch_size, num_classes, pos_weight = 1., iou_weight = 1., class_weight = 1.):
 
-  bbox_pred = tf.keras.Input((None, 4)); # bbox_pred.shape = (batch = 1, num_queries, 4)
-  labels_pred = tf.keras.Input((None, num_classes + 1)); # labels_pred.shape = (batch = 1, num_queries, num_classes + 1)
-  bbox_gt = tf.keras.Input((None, 4)); # bbox_gt.shape = (batch = 1, num_targets, 4)
-  labels_gt = tf.keras.Input((None, )); # labels_gt.shape = (batch = 1, num_targets)
+  bbox_pred = tf.keras.Input((None, 4), ragged = True); # bbox_pred.shape = (batch, ragged num_queries, 4)
+  labels_pred = tf.keras.Input((None, num_classes + 1), ragged = True); # labels_pred.shhape = (batch, ragged num_queries, num_classes + 1)
+  bbox_gt = tf.keras.Input((None, 4), ragged = True); # bbox_gt.shape = (batch, ragged num_targets, 4)
+  labels_gt = tf.keras.Input((None, ), ragged = True); # labels_gt.shape = (batch, ragged num_targets)
+  hungariancost = HungarianCost(num_classes, pos_weight, iou_weight, class_weight);
+  def cond(i, bbox_pred, labels_pred, bbox_gt, labels_gt, cost):
+    return i < batch_size;
+  def body(i, bbox_pred, labels_pred, bbox_gt, labels_gt, cost):
+    bbox_pred_slice = tf.expand_dims(bbox_pred[i, ...], axis = 0);
+    labels_pred_slice = tf.expand_dims(labels_pred[i, ...], axis = 0);
+    bbox_gt_slice = tf.expand_dims(bbox_gt[i, ...], axis = 0);
+    labels_gt_slice = tf.expand_dims(labels_gt[i, ...], axis = 0);
+    cost_slice = hungariancost([bbox_pred_slice, labels_pred_slice, bbox_gt_slice, labels_gt_slice]);
+    cost = tf.ragged.stack([cost[j] for j in tf.range(i)] + [cost_slice,], axis = 0);
+    return i + 1, bbox_pred, labels_pred, bbox_gt, labels_gt, cost;
+  costs = tf.keras.layers.Lambda(lambda x: tf.while_loop(cond, body, loop_vars = [0, x[0], x[1], x[2], x[3], tf.ragged.constant([])])[-1], dynamic = True)([bbox_pred, labels_pred, bbox_gt, labels_gt]);
+  return tf.keras.Model(inputs = (bbox_pred, labels_pred, bbox_gt, labels_gt), outputs = costs);
+
+def HungarianCost(num_classes, pos_weight = 1., iou_weight = 1., class_weight = 1.):
+
+  bbox_pred = tf.keras.Input((None, 4), batch_size = 1); # bbox_pred.shape = (batch = 1, num_queries, 4)
+  labels_pred = tf.keras.Input((None, num_classes + 1), batch_size = 1); # labels_pred.shape = (batch = 1, num_queries, num_classes + 1)
+  bbox_gt = tf.keras.Input((None, 4), batch_size = 1); # bbox_gt.shape = (batch = 1, num_targets, 4)
+  labels_gt = tf.keras.Input((None, ), batch_size = 1); # labels_gt.shape = (batch = 1, num_targets)
   # 1) get 1-norm of box prediction
   bbox_pred_reshape = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x, axis = -2))(bbox_pred); # bbox_pred_reshape.shape = (batch, num_queries, 1, 4)
   bbox_gt_reshape = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x, axis = -3))(bbox_gt); # bbox_gt_reshape.shape = (batch, 1, num_targets, 4)
@@ -171,6 +191,8 @@ def HungarianMatcher(num_classes, pos_weight = 1., iou_weight = 1., class_weight
                                                                shape_invariants = [tf.TensorShape([]), x[0].get_shape(), x[1].get_shape(), tf.TensorShape([None, x[0].shape[1], x[1].shape[1]])])[3])([labels_pred, labels_gt]);
   # 6) sum
   cost = tf.keras.layers.Lambda(lambda x, p, i, c: p * x[0] + i * x[1] + c * x[2], arguments = {'p': pos_weight, 'i': iou_weight, 'c': class_weight})([bbox_loss, iou_loss, class_loss]); # cost.shape = (batch, num_queries, num_targets)
+  return tf.keras.Model(inputs = (bbox_pred, labels_pred, bbox_gt, labels_gt), outputs = cost);
+  '''
   # 7) assign num_targets assignments to num_queries workers
   def assign(cost):
     row_ind, col_ind = linear_sum_assignment(cost.numpy());
@@ -179,7 +201,7 @@ def HungarianMatcher(num_classes, pos_weight = 1., iou_weight = 1., class_weight
     return ind;
   ind = tf.keras.layers.Lambda(lambda x: tf.map_fn(lambda y: tf.py_function(assign, inp = [y], Tout = [tf.int32]), x))(cost);
   return tf.keras.Model(inputs = (bbox_pred, labels_pred, bbox_gt, labels_gt), outputs = ind);
-
+  '''
 if __name__ == "__main__":
 
   assert tf.executing_eagerly();  
@@ -188,6 +210,6 @@ if __name__ == "__main__":
   classes, coords = detr(a);
   print(classes.shape, coords.shape)
   detr.save('detr.h5');
-  matcher = HungarianMatcher(100);
+  matcher = HungarianCostBatch(8, 100);
   matcher.save('matcher.h5');
   #tf.keras.utils.plot_model(model = detr, to_file = 'DETR.png', show_shapes = True, dpi = 64);
