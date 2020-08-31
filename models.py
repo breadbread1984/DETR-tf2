@@ -130,17 +130,14 @@ def HungarianCostBatch(batch_size, num_classes, pos_weight = 1., iou_weight = 1.
   bbox_gt = tf.keras.Input((None, 4), ragged = True); # bbox_gt.shape = (batch, ragged num_targets, 4)
   labels_gt = tf.keras.Input((None, ), ragged = True); # labels_gt.shape = (batch, ragged num_targets)
   hungariancost = HungarianCost(num_classes, pos_weight, iou_weight, class_weight);
-  def cond(i, bbox_pred, labels_pred, bbox_gt, labels_gt, cost):
-    return i < batch_size;
-  def body(i, bbox_pred, labels_pred, bbox_gt, labels_gt, cost):
-    bbox_pred_slice = tf.expand_dims(bbox_pred[i, ...], axis = 0);
-    labels_pred_slice = tf.expand_dims(labels_pred[i, ...], axis = 0);
-    bbox_gt_slice = tf.expand_dims(bbox_gt[i, ...], axis = 0);
-    labels_gt_slice = tf.expand_dims(labels_gt[i, ...], axis = 0);
+  def func(x):
+    bbox_pred_slice = tf.expand_dims(x[0], axis = 0); # bbox_pred_slice.shape = (1, num_queries, 4)
+    labels_pred_slice = tf.expand_dims(x[1], axis = 0); # labels_pred_slice.shape = (1, num_queries, num_classes + 1)
+    bbox_gt_slice = tf.expand_dims(x[2], axis = 0); # bbox_gt_slice.shape = (1, num_targets, 4)
+    labels_gt_slice = tf.expand_dims(x[3], axis = 0); # labels_gt_slice.shape = (1, num_targets)
     cost_slice = hungariancost([bbox_pred_slice, labels_pred_slice, bbox_gt_slice, labels_gt_slice]);
-    cost = tf.ragged.stack([cost[j] for j in tf.range(i)] + [cost_slice,], axis = 0);
-    return i + 1, bbox_pred, labels_pred, bbox_gt, labels_gt, cost;
-  costs = tf.keras.layers.Lambda(lambda x: tf.while_loop(cond, body, loop_vars = [0, x[0], x[1], x[2], x[3], tf.ragged.constant([])])[-1], dynamic = True)([bbox_pred, labels_pred, bbox_gt, labels_gt]);
+    return cost_slice;
+  costs = tf.keras.layers.Lambda(lambda x: tf.map_fn(func, (x[0], x[1], x[2], x[3]), dtype = tf.float32))([bbox_pred, labels_pred, bbox_gt, labels_gt]);
   return tf.keras.Model(inputs = (bbox_pred, labels_pred, bbox_gt, labels_gt), outputs = costs);
 
 def HungarianCost(num_classes, pos_weight = 1., iou_weight = 1., class_weight = 1.):
