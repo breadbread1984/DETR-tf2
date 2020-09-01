@@ -244,7 +244,23 @@ class Loss(tf.keras.Model):
       loss = tf.keras.losses.CategoricalCrossentropy(from_logits = False)(gt, labels_pred);
       return loss;
     label_losses = tf.map_fn(label_loss, (labels_pred, labels_gt, ind), fn_output_signature = tf.float32); # label_losses.shape = (batch)
-    # 3) 
+    # 3) cardinality loss
+    def cardinality_loss(x):
+      labels_pred = x[0]; # labels_pred.shape = (num_queries, num_classes + 1)
+      labels_gt = x[1]; # labels_gt.shape = (num_targets)
+      classes = tf.math.argmax(labels_pred, axis = -1); # pred.shape = (num_queries)
+      pred_obj_num = tf.cast(tf.math.reduce_sum(tf.cast(tf.math.not_equal(classes, 0))), dtype = tf.float32); # obj_num.shape = ()
+      gt_obj_num = tf.cast(labels_gt.shape[0], dtype = tf.float32); # gt_obj_num.shape = ()
+      loss = tf.keras.losses.MeanAbsoluteError()(gt_obj_num, pred_obj_num);
+      return loss;
+    cardinality_losses = tf.map_fn(cardinality_loss, (labels_pred, labels_gt), fn_output_signature = tf.float32); # cardinality_losses.shape = (batch)
+    # 4) boxes loss
+    def boxes_loss(x):
+      bbox_pred = x[0]; # bbox_pred.shape = (num_queries, 4)
+      bbox_gt = x[1]; # bbox_gt.shape = (num_targets, 4)
+      ind = x[2]; # ind.shape = (num_targets, 2) in sequence of detection_id->ground truth_id
+      
+    boxes_losses = tf.map_fn(boxes_loss, (bbox_pred, bbox_gt, ind), fn_output_signature = tf.float32); # boxes_losses.shape = (batch)
 
 if __name__ == "__main__":
 
