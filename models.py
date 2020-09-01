@@ -259,8 +259,14 @@ class Loss(tf.keras.Model):
       bbox_pred = x[0]; # bbox_pred.shape = (num_queries, 4)
       bbox_gt = x[1]; # bbox_gt.shape = (num_targets, 4)
       ind = x[2]; # ind.shape = (num_targets, 2) in sequence of detection_id->ground truth_id
-      
+      detection_id = ind[...,0]; # detection_id.shape = (target_num)
+      pred = tf.gather(bbox_pred, detection_id); # pred.shape = (target_num, 4)
+      target_id = ind[...,1]; # target_id.shape = (target_num)
+      target = tf.gather(bbox_gt, target_id); # target.shape = (target_num, 4)
+      loss = tf.keras.losses.MeanAbsoluteError()(target, pred);
+      return loss;
     boxes_losses = tf.map_fn(boxes_loss, (bbox_pred, bbox_gt, ind), fn_output_signature = tf.float32); # boxes_losses.shape = (batch)
+    
 
 if __name__ == "__main__":
 
