@@ -123,10 +123,10 @@ def DETR(num_classes, target_num = 100, num_layers = 6, hidden_dim = 256, code_d
   classes, coords = ImageTransformer(num_classes, num_layers = num_layers, num_queries = target_num, d_model = hidden_dim, code_dim = code_dim, position_embedding = position_embedding)(results);
   return tf.keras.Model(inputs = inputs, outputs = (classes, coords));
 
-def HungarianCostBatch(batch_size, num_classes, pos_weight = 1., iou_weight = 1., class_weight = 1.):
+def HungarianCostBatch(num_classes, target_num = 100, pos_weight = 1., iou_weight = 1., class_weight = 1.):
 
-  bbox_pred = tf.keras.Input((None, 4), ragged = True); # bbox_pred.shape = (batch, ragged num_queries, 4)
-  labels_pred = tf.keras.Input((None, num_classes + 1), ragged = True); # labels_pred.shhape = (batch, ragged num_queries, num_classes + 1)
+  bbox_pred = tf.keras.Input((target_num, 4)); # bbox_pred.shape = (batch, num_queries, 4)
+  labels_pred = tf.keras.Input((target_num, num_classes + 1)); # labels_pred.shhape = (batch, num_queries, num_classes + 1)
   bbox_gt = tf.keras.Input((None, 4), ragged = True); # bbox_gt.shape = (batch, ragged num_targets, 4)
   labels_gt = tf.keras.Input((None, ), ragged = True); # labels_gt.shape = (batch, ragged num_targets)
   hungariancost = HungarianCost(num_classes, pos_weight, iou_weight, class_weight);
@@ -135,9 +135,10 @@ def HungarianCostBatch(batch_size, num_classes, pos_weight = 1., iou_weight = 1.
     labels_pred_slice = tf.expand_dims(x[1], axis = 0); # labels_pred_slice.shape = (1, num_queries, num_classes + 1)
     bbox_gt_slice = tf.expand_dims(x[2], axis = 0); # bbox_gt_slice.shape = (1, num_targets, 4)
     labels_gt_slice = tf.expand_dims(x[3], axis = 0); # labels_gt_slice.shape = (1, num_targets)
-    cost_slice = hungariancost([bbox_pred_slice, labels_pred_slice, bbox_gt_slice, labels_gt_slice]);
+    cost_slice = hungariancost([bbox_pred_slice, labels_pred_slice, bbox_gt_slice, labels_gt_slice]); # cost_slice.shape = (1, num_queries, num_targets)
     return cost_slice;
-  costs = tf.keras.layers.Lambda(lambda x: tf.map_fn(func, (x[0], x[1], x[2], x[3]), dtype = tf.float32))([bbox_pred, labels_pred, bbox_gt, labels_gt]);
+  # costs.shape = (batch, num_queries, ragged num_targets)
+  costs = tf.keras.layers.Lambda(lambda x, n: tf.map_fn(func, (x[0], x[1], x[2], x[3]), fn_output_signature = tf.float32), arguments = {'n': target_num})([bbox_pred, labels_pred, bbox_gt, labels_gt]);
   return tf.keras.Model(inputs = (bbox_pred, labels_pred, bbox_gt, labels_gt), outputs = costs);
 
 def HungarianCost(num_classes, pos_weight = 1., iou_weight = 1., class_weight = 1.):
@@ -190,15 +191,56 @@ def HungarianCost(num_classes, pos_weight = 1., iou_weight = 1., class_weight = 
   cost = tf.keras.layers.Lambda(lambda x, p, i, c: p * x[0] + i * x[1] + c * x[2], arguments = {'p': pos_weight, 'i': iou_weight, 'c': class_weight})([bbox_loss, iou_loss, class_loss]); # cost.shape = (batch, num_queries, num_targets)
   return tf.keras.Model(inputs = (bbox_pred, labels_pred, bbox_gt, labels_gt), outputs = cost);
   '''
+  # NOTE: the following code is not supported by tensorflow 2.3
   # 7) assign num_targets assignments to num_queries workers
+  def assign_py(cost):
+    # cost.shape = (num_queries, num_targets) and num_targets < num_queries
+    row_ind, col_ind = linear_sum_assignment(cost); # row_ind.shape = (num_targets) col_ind.shape = (num_targets)
+    return row_ind, col_ind;
+  @tf.function
   def assign(cost):
-    row_ind, col_ind = linear_sum_assignment(cost.numpy());
+    row_ind, col_ind = tf.py_function(assign_py, inp = [cost], Tout = tf.int64);
     ind = tf.stack([row_ind,col_ind], axis = -1); # ind.shape = (num_targets, 2)
     ind = tf.cast(ind, dtype = tf.int32);
     return ind;
-  ind = tf.keras.layers.Lambda(lambda x: tf.map_fn(lambda y: tf.py_function(assign, inp = [y], Tout = [tf.int32]), x))(cost);
+  ind = tf.keras.layers.Lambda(lambda x: tf.map_fn(assign, x))(cost);
   return tf.keras.Model(inputs = (bbox_pred, labels_pred, bbox_gt, labels_gt), outputs = ind);
   '''
+  
+class Loss(tf.keras.Model):
+
+  def __init__(self, num_classes = 100, target_num = 100):
+
+    super(Loss, self).__init__();
+    self.matcher = HungarianCostBatch(num_classes, target_num);
+    self.num_classes = num_classes;
+
+  def call(self, x):
+
+    bbox_pred = x[0]; # bbox_pred.shape = (batch, num_queries, 4)
+    labels_pred = x[1]; # labels_pred.shape = (batch, num_queries, num_classes + 1)
+    bbox_gt = x[2]; # bbox_gt.shape = (batch, ragged num_targets, 4)
+    labels_gt = x[3]; # labels_gt.shape = (batch, ragged num_targets)
+    # 1) match detections and groundtruths
+    costs = self.matcher(bbox_pred, labels_pred, bbox_gt, labels_gt); # costs.shape = (batch, num queries, ragged num_targets)
+    def func(cost):
+      # row_ind: which detection
+      # col_ind: which ground truth
+      row_ind, col_ind = linear_sum_assignment(cost.numpy());
+      ind = tf.stack([row_ind, col_ind], axis = -1);
+      ind = tf.cast(ind, dtype = tf.int32); # ind.shape = (num_targets, 2) in sequence of detection_id->ground truth_id
+      return ind;
+    ind = tf.map_fn(func, cost, fn_output_signature = tf.int32); # ind.shape = (batch, ragged num_targets, 2)
+    # 2) label loss
+    def label_loss(x):
+      labels_pred = x[0]; # labels_pred.shape = (num_queries, num_classes + 1)
+      labels_gt = x[1]; # labels_gt.shape = (num_targets)
+      ind = x[2]; # ind.shape = (num_targets, 2) in sequence of detection_id->ground truth_id
+      # NOTE: default labels = num_classes which represents no object
+      gt = tf.constant(self.num_classes, dtype = tf.float32) * tf.ones((labels_pred.shape[0]), dtype = tf.float32); # gt.shape = (num_queries)
+      
+    label_losses = tf.map_fn(label_loss, (labels_pred, labels_gt, ind), fn_output_signature = tf.float32);
+
 if __name__ == "__main__":
 
   assert tf.executing_eagerly();  
@@ -207,6 +249,6 @@ if __name__ == "__main__":
   classes, coords = detr(a);
   print(classes.shape, coords.shape)
   detr.save('detr.h5');
-  matcher = HungarianCostBatch(8, 100);
+  matcher = HungarianCostBatch(100, 100);
   matcher.save('matcher.h5');
   #tf.keras.utils.plot_model(model = detr, to_file = 'DETR.png', show_shapes = True, dpi = 64);
