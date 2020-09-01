@@ -256,17 +256,39 @@ class Loss(tf.keras.Model):
     cardinality_losses = tf.map_fn(cardinality_loss, (labels_pred, labels_gt), fn_output_signature = tf.float32); # cardinality_losses.shape = (batch)
     # 4) boxes loss
     def boxes_loss(x):
-      bbox_pred = x[0]; # bbox_pred.shape = (num_queries, 4)
+      bbox_pred = x[0]; # bbox_pred.shape = (num_queries, 4) in sequence of (center_x, center_y, width, height)
       bbox_gt = x[1]; # bbox_gt.shape = (num_targets, 4)
       ind = x[2]; # ind.shape = (num_targets, 2) in sequence of detection_id->ground truth_id
       detection_id = ind[...,0]; # detection_id.shape = (target_num)
       pred = tf.gather(bbox_pred, detection_id); # pred.shape = (target_num, 4)
       target_id = ind[...,1]; # target_id.shape = (target_num)
       target = tf.gather(bbox_gt, target_id); # target.shape = (target_num, 4)
-      loss = tf.keras.losses.MeanAbsoluteError()(target, pred);
+      # regression loss
+      reg_loss = tf.keras.losses.MeanAbsoluteError()(target, pred); # loss.shape = ()
+      # iou loss
+      bbox_pred_ul = pred[...,0:2] - 0.5 * pred[...,2:4]; # bbox_pred_ul.shape = (num_targets, 2)
+      bbox_pred_dr = pred[...,0:2] + 0.5 * pred[...,2:4]; # bbox_pred_dr.shape = (num_targets, 2)
+      bbox_gt_ul = bbox_gt[...,0:2] - 0.5 * bbox_gt[...,2:4]; # bbox_gt_ul.shape = (num_targets, 2)
+      bbox_gt_dr = bbox_gt[...,0:2] + 0.5 * bbox_gt[...,2:4]; # bbox_gt_dr.shape = (num_targets, 2)
+      intersect_ul = tf.math.maximum(bbox_pred_ul, bbox_gt_ul); # intersect_ul.shape = (num_targets, 2)
+      intersect_dr = tf.math.minimum(bbox_pred_dr, bbox_gt_dr); # intersect_dr.shape = (num_targets, 2)
+      intersect_wh = tf.math.maximum(intersect_dr - intersect_ul + 1, 0); # intersect_wh.shape = (num_targets, 2)
+      intersect_area = intersect_wh[...,0] * intersect_wh[...,1]; # intersect_area.shape = (num_targets)
+      bounding_ul = tf.math.minimum(bbox_pred_ul, bbox_gt_ul); # bounding_ul.shape = (num_targets, 2)
+      bounding_dr = tf.math.maximum(bbox_pred_dr, bbox_gt_dr); # bounding_dr.shape = (num_targets, 2)
+      bounding_wh = tf.math.maximum(bounding_dr - bounding_ul + 1, 0); # bounding_wh.shape = (num_targets, 2)
+      bounding_area = bounding_wh[...,0] * bounding_wh[...,1]; # bounding_area.shape = (num_targets)
+      bbox_pred_wh = tf.math.maximum(bbox_pred_dr - bbox_pred_ul + 1, 0); # bbox_pred_wh.shape = (num_targets, 2)
+      bbox_pred_area = bbox_pred_wh[...,0] * bbox_pred_wh[...,1]; # bbox_pred_area.shape = (num_targets)
+      bbox_gt_wh = tf.math.maximum(bbox_gt_dr - bbox_gt_ul + 1, 0); # bbox_gt_wh.shape = (num_targets, 2)
+      bbox_gt_area = bbox_gt_wh[...,0] * bbox_gt_wh[...,1]; # bbox_gt_area.shape = (num_targets)
+      union = bbox_pred_area + bbox_gt_area - intersect_area; # union.shape = (num_targets)
+      iou = intersect_area / union; # iou.shape = (num_targets)
+      bg_ratio = (bounding_area - union) / bounding_area; # bg_ratio.shape = (num_targets)
+      iou_loss = tf.math.reduce_mean(iou - bg_ratio); # iou_loss.shape = ()
+      loss = tf.stack([reg_loss, iou_loss]); # loss.shape = (2,)
       return loss;
-    boxes_losses = tf.map_fn(boxes_loss, (bbox_pred, bbox_gt, ind), fn_output_signature = tf.float32); # boxes_losses.shape = (batch)
-    
+    boxes_losses = tf.map_fn(boxes_loss, (bbox_pred, bbox_gt, ind), fn_output_signature = tf.float32); # boxes_losses.shape = (batch, 2)
 
 if __name__ == "__main__":
 
