@@ -213,7 +213,6 @@ class Loss(tf.keras.Model):
 
     super(Loss, self).__init__();
     self.matcher = HungarianCostBatch(num_classes, target_num);
-    self.num_classes = num_classes;
 
   def call(self, x):
 
@@ -236,10 +235,16 @@ class Loss(tf.keras.Model):
       labels_pred = x[0]; # labels_pred.shape = (num_queries, num_classes + 1)
       labels_gt = x[1]; # labels_gt.shape = (num_targets)
       ind = x[2]; # ind.shape = (num_targets, 2) in sequence of detection_id->ground truth_id
-      # NOTE: default labels = num_classes which represents no object
-      gt = tf.constant(self.num_classes, dtype = tf.float32) * tf.ones((labels_pred.shape[0]), dtype = tf.float32); # gt.shape = (num_queries)
-      
-    label_losses = tf.map_fn(label_loss, (labels_pred, labels_gt, ind), fn_output_signature = tf.float32);
+      # NOTE: labels = 0 represents no object
+      indices = ind[...,0:1]; # indices.shape = (target_num, 1)
+      updates = tf.gather(labels_gt, ind[..., 1]); # update.shape = (target_num)
+      shape = tf.constant([labels_pred.shape[0]]); # shape = [num_queries]
+      gt = tf.scatter_nd(indices, updates, shape); # gt.shape = (num_queries)
+      # NOTE: labels_pred is output of softmax already
+      loss = tf.keras.losses.CategoricalCrossentropy(from_logits = False)(gt, labels_pred);
+      return loss;
+    label_losses = tf.map_fn(label_loss, (labels_pred, labels_gt, ind), fn_output_signature = tf.float32); # label_losses.shape = (batch)
+    # 3) 
 
 if __name__ == "__main__":
 
