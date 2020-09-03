@@ -1,0 +1,47 @@
+#!/usr/bin/python3
+
+from os.path import exists;
+import numpy as np;
+from models import DETR;
+
+class Predictor(object):
+
+  def __init__(self, query_num = 50, class_num = 80, input_shape = (416, 416, 3), detr = None):
+
+    # load model object from serialized file or assign directly
+    if detr is None:
+      self.input_shape = input_shape;
+      if exists('detr.h5'):
+        self.detr = tf.keras.models.load_model('detr.h5', compile = False);
+      else:
+        self.detr = DETR(class_num, query_num);
+        optimizer = tf.keras.optimizers.Adam(1e-4);
+        checkpoint = tf.train.Checkpoint(model = self.detr, optimizer = optimizer);
+        checkpoint.restore(tf.train.latest_checkpoint('checkpoints'));
+    else:
+      self.input_shape = tuple(detr.input.shape[1:]);
+      self.detr = detr;
+
+  def predict(self, image):
+
+    # preprocess image
+    images = tf.expand_dims(image, axis = 0);
+    resize_images = tf.image.resize(images, self.input_shape[:2], method = tf.image.ResizeMethod.BICUBIC, preserve_aspect_ratio = True);
+    resize_shape = resize_images.shape[1:3];
+    top_pad = (self.input_shape[0] - resize_shape[0]) // 2;
+    bottom_pad = self.input_shape[0] - resize_shape[0] - top_pad;
+    left_pad = (self.input_shape[1] - resize_shape[1]) // 2;
+    right_pad = self.input_shape[1] - resize_shape[1] - left_pad;
+    resize_images = tf.pad(resize_images,[[0,0], [top_pad,bottom_pad], [left_pad,right_pad], [0,0]], constant_values = 128);
+    deviation = tf.constant([left_pad / self.input_shape[1], top_pad / self.input_shape[0], 0, 0], dtype = tf.float32);
+    scale = tf.constant([
+      self.input_shape[1] / resize_shape[1], self.input_shape[0] / resize_shape[0],
+      self.input_shape[1] / resize_shape[1], self.input_shape[0] / resize_shape[0]
+    ], dtype = tf.float32);
+    images_data = tf.cast(resize_images, tf.float32) / 255.;
+    # detection
+    labels_pred, bbox_pred = detr(images_data); # bbox_pred.shape = (batch, query_num, 4) labels_pred.shape = (batch, query_num, num_classes + 1)
+    bbox_pred = (bbox_pred - deviation) * scale * [image.shape[1], image.shape[0], image.shape[1], image.shape[0]];
+    labels_pred = tf.math.argmax(labels_pred, axis = -1); # labels_pred.shape = (batch, query_num)
+    # TODO
+    
