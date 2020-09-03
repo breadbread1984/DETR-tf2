@@ -206,7 +206,7 @@ def HungarianCost(num_classes, pos_weight = 1., iou_weight = 1., class_weight = 
   ind = tf.keras.layers.Lambda(lambda x: tf.map_fn(assign, x))(cost);
   return tf.keras.Model(inputs = (bbox_pred, labels_pred, bbox_gt, labels_gt), outputs = ind);
   '''
-  
+
 class Loss(tf.keras.Model):
 
   def __init__(self, num_classes = 100, target_num = 100, weights = {'label_loss': 1, 'bbox_loss': 5, 'iou_loss': 2, 'cardinality_loss': 1}):

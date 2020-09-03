@@ -48,6 +48,7 @@ def main():
         tf.summary.scalar('train loss', train_loss.result());
       train_loss.reset_states();
     grads = tape.gradient(loss, detr.trainable_variables);
+    optimizer.apply_gradients(zip(grads, detr.trainable_variables));
     if tf.equal(optimizer.iterations % 2000, 0):
       # save checkpoint every 1000 steps
       checkpoint.save(join('checkpoints', 'ckpt'));
