@@ -43,5 +43,15 @@ class Predictor(object):
     labels_pred, bbox_pred = detr(images_data); # bbox_pred.shape = (batch, query_num, 4) labels_pred.shape = (batch, query_num, num_classes + 1)
     bbox_pred = (bbox_pred - deviation) * scale * [image.shape[1], image.shape[0], image.shape[1], image.shape[0]];
     labels_pred = tf.math.argmax(labels_pred, axis = -1); # labels_pred.shape = (batch, query_num)
-    # TODO
-    
+    mask = tf.math.not_equal(labels_pred, 0); # mask.shape = (batch, query_num)
+    masked_bbox = tf.boolean_mask(bbox_pred, mask); # masked_bbox.shape = (target_num, 4)
+    masked_label = tf.expand_dims(tf.boolean_mask(labels_pred, mask), axis = -1); # masked_label.shape = (target_num, 1)
+    upper_left = masked_bbox[...,0:2] - 0.5 * masked_bbox[...,2:4];
+    down_right = masked_bbox[...,0:2] + 0.5 * masked_bbox[...,2:4];
+    boundings = tf.keras.layers.Concatenate(axis = -1)([upper_left, down_right, masked_label]); # boundings.shape = (target_num, 5) in sequence of (x1, y1, x2, y2, class)
+    return boundings;
+
+if __name__ == "__main__":
+
+  assert tf.executing_eagerly() == True;
+  

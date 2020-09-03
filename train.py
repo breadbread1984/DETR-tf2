@@ -3,9 +3,12 @@
 import os;
 from os import mkdir;
 from os.path import exists, join;
+import numpy as np;
+import cv2;
 import tensorflow as tf;
 import tensorflow _datasets as tfds;
 from models import DETR, Loss;
+from predictor import Predictor;
 
 os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1';
 batch_size = 8;
@@ -62,9 +65,23 @@ def main():
       validation_loss.reset_states();
       print('testing on test set...');
       features = next(testset_iter);
-      images = features['image'].numpy().astype('uint8');
-      
+      image = features['image'].numpy().astype('uint8');
+      predictor = Predictor(detr = detr);
+      boundings = predictor.predict(image);
+      color_map = dict();
+      for bounding in boundings:
+        if bounding[5].numpy().astype('int32') in color_map:
+          clr = color_map[bounding[5].numpy().astype('int32')];
+        else:
+          color_map[bounding[5].numpy().astype('int32')] = tuyple(np.random.randint(low=0, high=256,size=(3,)).tolist());
+          clr = color_map[bounding[5].numpy().astype('int32')];
+        cv2.rectangle(image, tuple(bounding[0:2].numpy().astype('int32')), tuple(bounding[2:4].numpy().astype('int32')), clr, 5);
+      image = tf.expand_dims(img, axis = 0);
+      with log.as_default():
+        tf.summary.image('detect', img, step = optimizer.iterations);
+  detr.save('detr.h5');
 
 if __name__ == "__main__":
 
+  assert tf.executing_eagerly();
   main();
