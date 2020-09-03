@@ -209,10 +209,11 @@ def HungarianCost(num_classes, pos_weight = 1., iou_weight = 1., class_weight = 
   
 class Loss(tf.keras.Model):
 
-  def __init__(self, num_classes = 100, target_num = 100):
+  def __init__(self, num_classes = 100, target_num = 100, weights = {'label_loss': 1, 'bbox_loss': 5, 'iou_loss': 2, 'cardinality_loss': 1}):
 
     super(Loss, self).__init__();
     self.matcher = HungarianCostBatch(num_classes, target_num);
+    self.weights = weights;
 
   def call(self, x):
 
@@ -288,7 +289,13 @@ class Loss(tf.keras.Model):
       iou_loss = tf.math.reduce_mean(iou - bg_ratio); # iou_loss.shape = ()
       loss = tf.stack([reg_loss, iou_loss]); # loss.shape = (2,)
       return loss;
-    boxes_losses = tf.map_fn(boxes_loss, (bbox_pred, bbox_gt, ind), fn_output_signature = tf.float32); # boxes_losses.shape = (batch, 2)
+    bbox_n_iou_losses = tf.map_fn(boxes_loss, (bbox_pred, bbox_gt, ind), fn_output_signature = tf.float32); # boxes_losses.shape = (batch, 2)
+    bbox_losses = bbox_n_iou_losses[...,0]; # bbox_losses.shape = (batch)
+    iou_losses = bbox_n_iou_losses[...,1]; # iou_losses.shape = (batch)
+    # 5) sum up losses
+    loss = label_losses * self.weights['label_loss'] + bbox_losses * self.weights['bbox_loss'] + iou_losses * self.weights['iou_loss'];
+    loss = tf.math.reduce_sum(loss); # loss.shape = ()
+    return loss;
 
 if __name__ == "__main__":
 

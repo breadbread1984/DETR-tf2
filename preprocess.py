@@ -15,14 +15,13 @@ import tensorflow_datasets as tfds;
 # 'is_crowd': <tf.Tensor: id=539, shape=(1, 3), dtype=bool, numpy=array([[False, False, False]])>
 # }
 
-# anchor boxes are given in (width, height) order
-YOLOv3_anchors = np.array([[10,13],[16,30],[33,23],[30,61],[62,45],[59,119],[116,90],[156,198],[373,326]], dtype = np.int32);
-
 def map_function(feature):
 
     image, bbox, label = tf.py_function(map_function_impl,inp = [feature["image"], feature["objects"]["bbox"], feature["objects"]["label"]],Tout = [tf.float32,tf.float32,tf.float32,tf.float32]);
     image = tf.reshape(image, (416,416,3));
-    
+    # image.shape = (416,416,3)
+    # bbox.shape = (target_num, 4)
+    # label.shape = (target_num)
     return image, (bbox, label);
 
 def map_function_impl(image, bbox, label):
