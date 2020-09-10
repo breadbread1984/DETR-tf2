@@ -213,7 +213,7 @@ class Loss(tf.keras.Model):
 
     super(Loss, self).__init__();
     self.matcher = HungarianCostBatch(num_classes, target_num);
-    self.weights = weights;
+    self._weights = weights;
 
   def call(self, x):
 
@@ -293,7 +293,7 @@ class Loss(tf.keras.Model):
     bbox_losses = bbox_n_iou_losses[...,0]; # bbox_losses.shape = (batch)
     iou_losses = bbox_n_iou_losses[...,1]; # iou_losses.shape = (batch)
     # 5) sum up losses
-    loss = label_losses * self.weights['label_loss'] + bbox_losses * self.weights['bbox_loss'] + iou_losses * self.weights['iou_loss'];
+    loss = label_losses * self._weights['label_loss'] + bbox_losses * self._weights['bbox_loss'] + iou_losses * self._weights['iou_loss'];
     loss = tf.math.reduce_sum(loss); # loss.shape = ()
     return loss;
 
