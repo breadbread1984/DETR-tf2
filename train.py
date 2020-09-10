@@ -18,10 +18,10 @@ def main():
 
   detr = DETR(80, 50);
   detr_loss = Loss(80, 50);
-  trainset = tf.data.TFRecordDataset('coco14/trainset.tfrecord').repeat(100).map(parse_function).map(map_function).shuffle(batch_size).apply(tf.data.experimental.dense_to_ragged_batch(batch_size)).prefetch(tf.data.experimental.AUTOTUNE);
-  validationset = tf.data.TFRecordDataset('coco14/testset.tfrecord').repeat(100).map(parse_function).map(map_function).shuffle(batch_size).apply(tf.data.experimental.dense_to_ragged_batch(batch_size)).prefetch(tf.data.experiemental.AUTOTUNE);
+  trainset = tf.data.TFRecordDataset('coco14/trainset.tfrecord').repeat(100).map(parse_function).map(map_function).apply(tf.data.experimental.dense_to_ragged_batch(batch_size));
+  validationset = tf.data.TFRecordDataset('coco14/testset.tfrecord').repeat(100).map(parse_function).map(map_function).apply(tf.data.experimental.dense_to_ragged_batch(batch_size));
   validationset_iter = iter(validationset);
-  testset = tf.data.TFRecordDataset('coco14/testset.tfrecord').repeat(100).map(parse_function).prefetch(tf.data.experiemental.AUTOTUNE);
+  testset = tf.data.TFRecordDataset('coco14/testset.tfrecord').repeat(100).map(parse_function).prefetch(tf.data.experimental.AUTOTUNE);
   testset_iter = iter(testset);
   # restore from existing checkpoint
   optimizer = tf.keras.optimizers.Adam(1e-4);
@@ -33,11 +33,10 @@ def main():
   # train model
   train_loss = tf.keras.metrics.Mean(name = 'train_loss', dtype = tf.float32);
   validation_loss = tf.keras.metrics.Mean(name = 'validation_loss', dtype = tf.float32);
-  for images, labels in trainset:
+  for images, bbox_gt, labels_gt in trainset:
     # images.shape = (batch, h, w, 3)
     # bboxes.shape = (batch, ragged target_num, 4)
     # classes.shape = (batch, ragged target_num)
-    bbox_gt, labels_gt = labels;
     with tf.GradientTape() as tape:
       labels_pred, bbox_pred = detr(images);
       loss = detr_loss(bbox_pred, labels_pred, bbox_gt, labels_gt);

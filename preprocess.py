@@ -22,7 +22,7 @@ def map_function(feature):
   # image.shape = (416,416,3)
   # bbox.shape = (target_num, 4)
   # label.shape = (target_num)
-  return image, (bbox, label);
+  return image, bbox, label;
 
 def map_function_impl(image, bbox, label):
 
