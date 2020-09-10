@@ -6,7 +6,8 @@ from os.path import exists, join;
 import numpy as np;
 import cv2;
 import tensorflow as tf;
-import tensorflow _datasets as tfds;
+from create_datasets import parse_function;
+from preprocess import map_function;
 from models import DETR, Loss;
 from predictor import Predictor;
 
@@ -17,12 +18,10 @@ def main():
 
   detr = DETR(80, 50);
   detr_loss = Loss(80, 50);
-  trainset = tfds.load(name = 'coco2014', split = tfds.Split.TRAIN, download = False);
-  trainset = trainset.map(map_function).repeat(100).shuffle(batch_size).apply(tf.data.experimental.dense_to_ragged_batch(batch_size)).prefetch(tf.data.experimental.AUTOTUNE);
-  validationset = tfds.load(name = 'coco2014', split = tfds.Split.VALIDATION, download = False);
-  validationset_iter = iter(validationset.map(map_function).repeat(100).shuffle(batch_size).apply(tf.data.experimental.dense_to_ragged_batch(batch_size)).prefetch(tf.data.experimental.AUTOTUNE));
-  testset = tfds.load(name = 'coco2014', split = tfds.Split.TEST, download = False);
-  testset = testset.repeat(100).prefetch(tf.data.experimental.AUTOTUNE);
+  trainset = tf.data.TFRecordDataset('coco14/trainset.tfrecord').repeat(100).map(parse_function).map(map_function).shuffle(batch_size).apply(tf.data.experimental.dense_to_ragged_batch(batch_size)).prefetch(tf.data.experimental.AUTOTUNE);
+  validationset = tf.data.TFRecordDataset('coco14/testset.tfrecord').repeat(100).map(parse_function).map(map_function).shuffle(batch_size).apply(tf.data.experimental.dense_to_ragged_batch(batch_size)).prefetch(tf.data.experiemental.AUTOTUNE);
+  validationset_iter = iter(validationset);
+  testset = tf.data.TFRecordDataset('coco14/testset.tfrecord').repeat(100).map(parse_function).prefetch(tf.data.experiemental.AUTOTUNE);
   testset_iter = iter(testset);
   # restore from existing checkpoint
   optimizer = tf.keras.optimizers.Adam(1e-4);
