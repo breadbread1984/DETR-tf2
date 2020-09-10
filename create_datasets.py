@@ -59,6 +59,7 @@ def create_trainset(image_dir, label_dir):
 
 def create_testset(image_dir):
 
+  writer = tf.io.TFRecordWriter('testset.tfrecord');
   for f in listdir(image_dir):
     if isfile(join(image_dir, f)):
       img = cv2.imread(join(image_dir, f));
@@ -72,7 +73,7 @@ def create_testset(image_dir):
         }
       ));
       writer.write(trainsample.SerializeToString());
-    writer.close();
+  writer.close();
 
 if __name__ == "__main__":
 
