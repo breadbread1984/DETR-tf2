@@ -34,8 +34,15 @@ def parse_function(serialized_example):
 
 def create_dataset(image_dir, label_dir, trainset = True):
 
-  with open(join(label_dir, 'instances_train2014.json' if trainset else 'instances_val2014.json'), 'r') as f:
-    labels = json.loads(f.read());
+  if exists(join(label_dir, 'instances_train2014.json')):
+    with open(join(label_dir, 'instances_train2014.json' if trainset else 'instances_val2014.json'), 'r') as f:
+      labels = json.loads(f.read());
+  elif exists(join(label_dir, 'instances_train2017.json')):
+    with open(join(label_dir, 'instances_train2017.json' if trainset else 'instances_val2017.json'), 'r') as f:
+      labels = json.loads(f.read());
+  else:
+    print('can\'t find annotation file!');
+    exit(1);
   annotations = dict();
   # 1) collect images
   for image in labels['images']:
