@@ -1,11 +1,12 @@
 #!/usr/bin/python3
 
 import json;
-from os.path import join, exists;
+from os import listdir;
+from os.path import join, exists, isfile;
 import cv2;
 import tensorflow as tf;
 
-def main(image_dir, label_dir, output):
+def create_trainset(image_dir, label_dir):
 
   with open(join(label_dir, 'instances_train2014.json'), 'r') as f:
     labels = json.loads(f.read());
@@ -35,7 +36,7 @@ def main(image_dir, label_dir, output):
     annotations[img_id]['label'] = tf.concat([annotations[img_id]['label'], category_id], axis = 0); # label.shape = (n,)
     annotations[img_id]['is_crowd'] = tf.concat([annotations[img_id]['is_crowd'], is_crowd], axis = 0); # is_crowd.shape = (n,)
   # 3) generate tfrecord
-  writer = tf.io.TFRecordWriter(output);
+  writer = tf.io.TFRecordWriter('trainset.tfrecord');
   if writer is None:
     print('invalid output file!');
     exit(1);
@@ -48,19 +49,37 @@ def main(image_dir, label_dir, output):
       feature = {
         'data': tf.train.Feature(bytes_list = tf.train.BytesList(value = [tf.io.encode_jpeg(img).numpy()])),
         'shape': tf.train.Feature(int64_list = tf.train.Int64List(value = list(img.shape))),
-        'bbox': tf.train.Feature(float_list = tf.train.FloatList(value = anno['bbox'].reshape(-1))),
+        'bbox': tf.train.Feature(float_list = tf.train.FloatList(value = tf.reshape(anno['bbox'], (-1,)))),
         'label': tf.train.Feature(int64_list = tf.train.Int64List(value = anno['label'])),
         'is_crowd': tf.train.Feature(int64_list = tf.train.Int64List(value = anno['is_crowd']))
       }
     ));
     writer.write(trainsample.SerializeToString());
   writer.close();
-  
+
+def create_testset(image_dir):
+
+  for f in listdir(image_dir):
+    if isfile(join(image_dir, f)):
+      img = cv2.imread(join(image_dir, f));
+      if img is None:
+        print('can\'t read image %s' % (join(image_dir, f),));
+        continue;
+      trainsample = tf.train.Example(features = tf.train.Features(
+        feature = {
+          'data': tf.train.Feature(bytes_list = tf.train.BytesList(value = [tf.io.encode_jpeg(img).numpy()])),
+          'shape': tf.train.Feature(int64_list = tf.train.Int64List(value = list(img.shape)))
+        }
+      ));
+      writer.write(trainsample.SerializeToString());
+    writer.close();
+
 if __name__ == "__main__":
 
   assert tf.executing_eagerly() == True;
   from sys import argv;
   if len(argv) != 4:
-    print('Usage: %s <image dir> <anno dir> <output tfrecord file>' % (argv[0],));
+    print('Usage: %s <train image dir> <anno dir> <test image dir>' % (argv[0],));
     exit(1);
-  main(argv[1], argv[2], argv[3]);
+  create_trainset(argv[1], argv[2]);
+  create_testset(argv[3]);
