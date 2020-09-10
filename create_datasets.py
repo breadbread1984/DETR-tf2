@@ -6,9 +6,9 @@ from os.path import join, exists, isfile;
 import cv2;
 import tensorflow as tf;
 
-def create_trainset(image_dir, label_dir):
+def create_dataset(image_dir, label_dir, trainset = True):
 
-  with open(join(label_dir, 'instances_train2014.json'), 'r') as f:
+  with open(join(label_dir, 'instances_train2014.json' if trainset else 'instances_val2014.json'), 'r') as f:
     labels = json.loads(f.read());
   annotations = dict();
   # 1) collect images
@@ -36,7 +36,7 @@ def create_trainset(image_dir, label_dir):
     annotations[img_id]['label'] = tf.concat([annotations[img_id]['label'], category_id], axis = 0); # label.shape = (n,)
     annotations[img_id]['is_crowd'] = tf.concat([annotations[img_id]['is_crowd'], is_crowd], axis = 0); # is_crowd.shape = (n,)
   # 3) generate tfrecord
-  writer = tf.io.TFRecordWriter('trainset.tfrecord');
+  writer = tf.io.TFRecordWriter('trainset.tfrecord' if trainset else 'testset.tfrecord');
   if writer is None:
     print('invalid output file!');
     exit(1);
@@ -57,30 +57,12 @@ def create_trainset(image_dir, label_dir):
     writer.write(trainsample.SerializeToString());
   writer.close();
 
-def create_testset(image_dir):
-
-  writer = tf.io.TFRecordWriter('testset.tfrecord');
-  for f in listdir(image_dir):
-    if isfile(join(image_dir, f)):
-      img = cv2.imread(join(image_dir, f));
-      if img is None:
-        print('can\'t read image %s' % (join(image_dir, f),));
-        continue;
-      trainsample = tf.train.Example(features = tf.train.Features(
-        feature = {
-          'data': tf.train.Feature(bytes_list = tf.train.BytesList(value = [tf.io.encode_jpeg(img).numpy()])),
-          'shape': tf.train.Feature(int64_list = tf.train.Int64List(value = list(img.shape)))
-        }
-      ));
-      writer.write(trainsample.SerializeToString());
-  writer.close();
-
 if __name__ == "__main__":
 
   assert tf.executing_eagerly() == True;
   from sys import argv;
   if len(argv) != 4:
-    print('Usage: %s <train image dir> <anno dir> <test image dir>' % (argv[0],));
+    print('Usage: %s <train image dir>  <test image dir> <anno dir>' % (argv[0],));
     exit(1);
-  create_trainset(argv[1], argv[2]);
-  create_testset(argv[3]);
+  create_dataset(argv[1], argv[3], True);
+  create_dataset(argv[2], argv[3], False);
