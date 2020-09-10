@@ -17,7 +17,7 @@ import tensorflow_datasets as tfds;
 
 def map_function(feature):
 
-  image, bbox, label = tf.py_function(map_function_impl,inp = [feature["image"], feature["objects"]["bbox"], feature["objects"]["label"]],Tout = [tf.float32,tf.float32,tf.float32,tf.float32]);
+  image, bbox, label = tf.py_function(map_function_impl,inp = [feature["image"], feature["objects"]["bbox"], feature["objects"]["label"]],Tout = [tf.float32,tf.float32,tf.int64]);
   image = tf.reshape(image, (416,416,3));
   # image.shape = (416,416,3)
   # bbox.shape = (target_num, 4)

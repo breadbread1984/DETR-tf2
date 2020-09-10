@@ -6,6 +6,32 @@ from os.path import join, exists, isfile;
 import cv2;
 import tensorflow as tf;
 
+def parse_function(serialized_example):
+
+  feature = tf.io.parse_single_example(
+    serialized_example,
+    features = {
+      'data': tf.io.FixedLenFeature((), dtype = tf.string, default_value = ''),
+      'shape': tf.io.FixedLenFeature((3,), dtype = tf.int64),
+      'bbox': tf.io.VarLenFeature(dtype = tf.float32),
+      'label': tf.io.VarLenFeature(dtype = tf.int64),
+      'is_crowd': tf.io.VarLenFeature(dtype = tf.int64)
+    }
+  );
+  shape = tf.cast(feature['shape'], dtype = tf.int32);
+  data = tf.io.decode_jpeg(feature['data']);
+  data = tf.reshape(data, shape);
+  data = tf.cast(data, dtype = tf.float32);
+  bbox = tf.sparse.to_dense(feature['bbox'], default_value = 0);
+  bbox = tf.reshape(bbox, (-1, 4)); # bbox = (x,y,w,h)
+  bbox = tf.concat([tf.reverse(bbox[...,:2], axis = [-1]), tf.reverse(bbox[...,:2], axis = [-1]) + tf.reverse(bbox[...,2:], axis = [-1])], axis = -1) / \
+    tf.cast([[shape[0], shape[1], shape[0], shape[1]]], dtype = tf.float32); # bbox = (y1, x1, y2, x2) / (height, width, height, width)
+  label = tf.sparse.to_dense(feature['label'], default_value = 0);
+  label = tf.reshape(label, (-1,));
+  is_crowd = tf.sparse.to_dense(feature['is_crowd'], default_value = 0);
+  is_crowd = tf.reshape(is_crowd, (-1,));
+  return {'image': data, 'objects': {'bbox': bbox, 'label': label, 'is_crowd': is_crowd}};
+
 def create_dataset(image_dir, label_dir, trainset = True):
 
   with open(join(label_dir, 'instances_train2014.json' if trainset else 'instances_val2014.json'), 'r') as f:
