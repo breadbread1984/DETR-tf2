@@ -28,9 +28,9 @@ def main(image_dir, label_dir, output):
     if img_id not in annotations:
       print('image id %d not found' % (img_id));
       continue;
-    bbox = tf.expand_dims(annotation['bbox'], axis = 0); # bbox.shape = (1,4)
-    category_id = tf.expand_dims(annotation['category_id'], axis = 0); # category_id.shape = (1,)
-    is_crowd = tf.expand_dims(annotation['iscrowd'], axis = 0); # is_crowd.shape = (1,)
+    bbox = tf.expand_dims(tf.constant(annotation['bbox'], dtype = tf.float32), axis = 0); # bbox.shape = (1,4)
+    category_id = tf.expand_dims(tf.constant(annotation['category_id'], dtype = tf.int32), axis = 0); # category_id.shape = (1,)
+    is_crowd = tf.expand_dims(tf.constant(annotation['iscrowd'], dtype = tf.int32), axis = 0); # is_crowd.shape = (1,)
     annotations[img_id]['bbox'] = tf.concat([annotations[img_id]['bbox'], bbox], axis = 0); # bbox.shape = (n, 4)
     annotations[img_id]['label'] = tf.concat([annotations[img_id]['label'], category_id], axis = 0); # label.shape = (n,)
     annotations[img_id]['is_crowd'] = tf.concat([annotations[img_id]['is_crowd'], is_crowd], axis = 0); # is_crowd.shape = (n,)
@@ -46,7 +46,7 @@ def main(image_dir, label_dir, output):
       continue;
     trainsample = tf.train.Example(features = tf.train.Features(
       feature = {
-        'data': tf.train.Feature(bytes_list = tf.train.BytesList(value = [tf.io.encoding_jpeg(img).numpy()])),
+        'data': tf.train.Feature(bytes_list = tf.train.BytesList(value = [tf.io.encode_jpeg(img).numpy()])),
         'shape': tf.train.Feature(int64_list = tf.train.Int64List(value = list(img.shape))),
         'bbox': tf.train.Feature(float_list = tf.train.FloatList(value = anno['bbox'].reshape(-1))),
         'label': tf.train.Feature(int64_list = tf.train.Int64List(value = anno['label'])),
