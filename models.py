@@ -138,7 +138,7 @@ def HungarianCostBatch(num_classes, target_num = 100, pos_weight = 1., iou_weigh
     cost_slice = hungariancost([bbox_pred_slice, labels_pred_slice, bbox_gt_slice, labels_gt_slice]); # cost_slice.shape = (1, num_queries, num_targets)
     return cost_slice;
   # costs.shape = (batch, num_queries, ragged num_targets)
-  costs = tf.keras.layers.Lambda(lambda x, n: tf.map_fn(func, (x[0], x[1], x[2], x[3]), fn_output_signature = tf.float32), arguments = {'n': target_num})([bbox_pred, labels_pred, bbox_gt, labels_gt]);
+  costs = tf.keras.layers.Lambda(lambda x, n: tf.map_fn(func, (x[0], x[1], x[2], x[3]), fn_output_signature = tf.RaggedTensorSpec(shape = (tf.shape(x[0])[1], None), dtype = tf.float32)), arguments = {'n': target_num})([bbox_pred, labels_pred, bbox_gt, labels_gt]);
   return tf.keras.Model(inputs = (bbox_pred, labels_pred, bbox_gt, labels_gt), outputs = costs);
 
 def HungarianCost(num_classes, pos_weight = 1., iou_weight = 1., class_weight = 1.):
