@@ -103,6 +103,7 @@ def parse_function_generator(num_classes, img_shape = (416,416), random = True, 
     final_image = tf.keras.layers.Lambda(lambda x: x / 255.)(final_image);
     image = tf.keras.layers.Lambda(lambda x: tf.squeeze(x, axis = 0))(final_image); # image.shape = (height, width, 3)
     bbox = tf.keras.layers.Lambda(lambda x: tf.squeeze(x, axis = 0))(final_bbox); # bbox.shape = (obj_num, 4)
+    image.set_shape((img_shape[1], img_shape[0], 3));
     return image, (bbox, labels);
   return parse_function;
 
