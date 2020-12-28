@@ -40,7 +40,7 @@ def main():
     images, (bbox, labels) = next(trainset_iter);
     with tf.GradientTape() as tape:
       labels_pred, bbox_pred = detr(images);
-      loss = detr_loss(bbox_pred, labels_pred, bbox, labels);
+      loss = detr_loss([bbox_pred, labels_pred, bbox, labels]);
     # check whether the loss numeric is correct
     if tf.math.reduce_any(tf.math.is_nan(loss)) == True:
       print("NaN was detected in loss, skip the following steps!");
