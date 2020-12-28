@@ -129,7 +129,7 @@ def HungarianCostBatch(num_classes, target_num = 100, pos_weight = 1., iou_weigh
   labels_pred = tf.keras.Input((target_num, num_classes + 1)); # labels_pred.shhape = (batch, num_queries, num_classes + 1)
   bbox_gt = tf.keras.Input((None, 4), ragged = True); # bbox_gt.shape = (batch, ragged num_targets, 4)
   labels_gt = tf.keras.Input((None, ), ragged = True); # labels_gt.shape = (batch, ragged num_targets)
-  hungariancost = HungarianCost(num_classes, pos_weight, iou_weight, class_weight);
+  hungariancost = HungarianCost([num_classes, pos_weight, iou_weight, class_weight]);
   def func(x):
     bbox_pred_slice = tf.expand_dims(x[0], axis = 0); # bbox_pred_slice.shape = (1, num_queries, 4)
     labels_pred_slice = tf.expand_dims(x[1], axis = 0); # labels_pred_slice.shape = (1, num_queries, num_classes + 1)
