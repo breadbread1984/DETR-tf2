@@ -222,7 +222,7 @@ class Loss(tf.keras.Model):
     bbox_gt = x[2]; # bbox_gt.shape = (batch, ragged num_targets, 4)
     labels_gt = x[3]; # labels_gt.shape = (batch, ragged num_targets)
     # 1) match detections and groundtruths
-    costs = self.matcher(bbox_pred, labels_pred, bbox_gt, labels_gt); # costs.shape = (batch, num queries, ragged num_targets)
+    costs = self.matcher([bbox_pred, labels_pred, bbox_gt, labels_gt]); # costs.shape = (batch, num queries, ragged num_targets)
     def func(cost):
       # row_ind: which detection
       # col_ind: which ground truth
