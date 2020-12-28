@@ -6,7 +6,7 @@ from os.path import exists, join;
 import numpy as np;
 import cv2;
 import tensorflow as tf;
-from create_datasets import parse_function_generator;
+from create_datasets import parse_function_generator, parse_function;
 from models import DETR, Loss;
 from predictor import Predictor;
 
