@@ -253,7 +253,7 @@ class Loss(tf.keras.Model):
       classes = tf.math.argmax(labels_pred, axis = -1); # pred.shape = (num_queries)
       pred_obj_num = tf.math.reduce_sum(tf.cast(tf.math.not_equal(classes, 0), dtype = tf.float32)); # obj_num.shape = ()
       gt_obj_num = tf.cast(labels_gt.shape[0], dtype = tf.float32); # gt_obj_num.shape = ()
-      loss = tf.keras.losses.MeanAbsoluteError()(gt_obj_num, pred_obj_num);
+      loss = tf.math.abs(gt_obj_num - pred_obj_num);
       return loss;
     cardinality_losses = tf.map_fn(cardinality_loss, (labels_pred, labels_gt), fn_output_signature = tf.float32); # cardinality_losses.shape = (batch)
     # 4) boxes loss
