@@ -251,7 +251,7 @@ class Loss(tf.keras.Model):
       labels_pred = x[0]; # labels_pred.shape = (num_queries, num_classes + 1)
       labels_gt = x[1]; # labels_gt.shape = (num_targets)
       classes = tf.math.argmax(labels_pred, axis = -1); # pred.shape = (num_queries)
-      pred_obj_num = tf.cast(tf.math.reduce_sum(tf.cast(tf.math.not_equal(classes, 0))), dtype = tf.float32); # obj_num.shape = ()
+      pred_obj_num = tf.math.reduce_sum(tf.cast(tf.math.not_equal(classes, 0), dtype = tf.float32)); # obj_num.shape = ()
       gt_obj_num = tf.cast(labels_gt.shape[0], dtype = tf.float32); # gt_obj_num.shape = ()
       loss = tf.keras.losses.MeanAbsoluteError()(gt_obj_num, pred_obj_num);
       return loss;
