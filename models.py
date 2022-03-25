@@ -137,7 +137,7 @@ def HungarianCostBatch(num_classes, target_num = 100, pos_weight = 1., iou_weigh
     labels_gt_slice = tf.expand_dims(x[3], axis = 0); # labels_gt_slice.shape = (1, num_targets)
     cost_slice = hungariancost([bbox_pred_slice, labels_pred_slice, bbox_gt_slice, labels_gt_slice]); # cost_slice.shape = (1, num_queries, num_targets)
     cost_slice = tf.squeeze(cost_slice, axis = 0); # cost_slice.shape = (num_queries, num_targets)
-    return tf.RaggedTensor.from_tensor(cost_slice);
+    return tf.RaggedTensor.from_tensor(cost_slice, ragged_rank = 1);
   # costs.shape = (batch, num_queries, ragged num_targets)
   costs = tf.keras.layers.Lambda(lambda x, n: tf.map_fn(func, (x[0], x[1], x[2], x[3]), fn_output_signature = tf.RaggedTensorSpec(shape = (x[0].shape[1], None), dtype = tf.float32, ragged_rank = 1)), arguments = {'n': target_num})([bbox_pred, labels_pred, bbox_gt, labels_gt]);
   return tf.keras.Model(inputs = (bbox_pred, labels_pred, bbox_gt, labels_gt), outputs = costs);
@@ -230,7 +230,7 @@ class Loss(tf.keras.Model):
       row_ind, col_ind = linear_sum_assignment(cost.numpy());
       ind = tf.stack([row_ind, col_ind], axis = -1);
       ind = tf.cast(ind, dtype = tf.int32); # ind.shape = (num_targets, 2) in sequence of detection_id->ground truth_id
-      return tf.RaggedTensor.from_tensor(ind);
+      return tf.RaggedTensor.from_tensor(ind, ragged_rank = 0);
     ind = tf.map_fn(func, costs, fn_output_signature = tf.RaggedTensorSpec(shape = (None, 2), dtype = tf.int32, ragged_rank = 0)); # ind.shape = (batch, ragged num_targets, 2)
     # 2) label loss
     def label_loss(x):
