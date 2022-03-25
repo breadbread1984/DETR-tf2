@@ -15,8 +15,8 @@ batch_size = 8;
 
 def main():
 
-  detr = DETR(80, 50);
-  detr_loss = Loss(80, 50);
+  detr = DETR(80, 100);
+  detr_loss = Loss(80, 100);
   optimizer = tf.keras.optimizers.Adam(tf.keras.optimizers.schedules.ExponentialDecay(1e-4, decay_steps = 110000, decay_rate = 0.99));
   checkpoint = tf.train.Checkpoint(model = detr, optimizer = optimizer);
   train_loss = tf.keras.metrics.Mean(name = 'train loss', dtype = tf.float32);
