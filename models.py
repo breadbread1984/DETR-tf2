@@ -243,7 +243,7 @@ class Loss(tf.keras.Model):
       shape = tf.constant([labels_pred.shape[0]]); # shape = [num_queries]
       gt = tf.scatter_nd(indices, updates, shape); # gt.shape = (num_queries)
       # NOTE: labels_pred is output of softmax already
-      loss = tf.keras.losses.CategoricalCrossentropy(from_logits = False)(gt, labels_pred);
+      loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits = False)(gt, labels_pred);
       return loss;
     label_losses = tf.map_fn(label_loss, (labels_pred, labels_gt, ind), fn_output_signature = tf.float32); # label_losses.shape = (batch)
     # 3) cardinality loss
