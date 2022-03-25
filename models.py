@@ -231,7 +231,7 @@ class Loss(tf.keras.Model):
       ind = tf.stack([row_ind, col_ind], axis = -1);
       ind = tf.cast(ind, dtype = tf.int32); # ind.shape = (num_targets, 2) in sequence of detection_id->ground truth_id
       return tf.RaggedTensor.from_tensor(ind);
-    ind = tf.map_fn(func, costs, fn_output_signature = tf.RaggedTensorSpec(shape = (costs.shape[0], None, 2), dtype = tf.int32, ragged_rank = 1)); # ind.shape = (batch, ragged num_targets, 2)
+    ind = tf.map_fn(func, costs, fn_output_signature = tf.RaggedTensorSpec(shape = (None, 2), dtype = tf.int32, ragged_rank = 0)); # ind.shape = (batch, ragged num_targets, 2)
     # 2) label loss
     def label_loss(x):
       labels_pred = x[0]; # labels_pred.shape = (num_queries, num_classes + 1)
