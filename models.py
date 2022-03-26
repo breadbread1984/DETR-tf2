@@ -180,11 +180,8 @@ def HungarianCost(num_classes, pos_weight = 1., iou_weight = 1., class_weight = 
   def body(i, labels_pred, labels_gt, loss):
     labels_pred_slice = labels_pred[i,...]; # labels_pred_slice.shape = (num_queries, num_classes + 1)
     labels_gt_slice = tf.cast(labels_gt[i,...], dtype = tf.int32); # labels_gt_slices.shape = (num_targets)
-    y = tf.tile(tf.reshape(tf.range(tf.shape(labels_pred_slice)[0]), (-1, 1)), (1, tf.shape(labels_gt_slice)[0])); # y.shape = (num_queries, num_targets)
-    x = tf.tile(tf.reshape(labels_gt_slice, (1, -1)), (tf.shape(labels_pred_slice)[0], 1)); # x.shape = (num_queries, num_targets)
-    yx = tf.stack([y,x], axis = -1); # yx.shape = (num_queries, num_targets, 2)
-    values = -tf.expand_dims(tf.gather_nd(labels_pred_slice, yx), axis = 0); # values.shape = (1, num_queries, num_targets)
-    loss = tf.concat([loss, values], axis = 0); # loss.shape = (n, num_queries, num_targets)
+    probs = tf.gather(labels_pred_slice, labels_gt_slice, axis = -1); # probs.shape = (num_queries, num_targets)
+    loss = tf.concat([loss, tf.expand_dims(-probs, axis = 0)], axis = 0); # loss.shape = (n, num_queries, num_targets)
     return i + 1, labels_pred, labels_gt, loss;
   class_loss = tf.keras.layers.Lambda(lambda x: -tf.while_loop(cond, body, loop_vars = [0, x[0], x[1], tf.zeros((0, tf.shape(x[0])[1], tf.shape(x[1])[1]))], 
                                                                shape_invariants = [tf.TensorShape([]), x[0].get_shape(), x[1].get_shape(), tf.TensorShape([None, x[0].shape[1], x[1].shape[1]])])[3])([labels_pred, labels_gt]);
