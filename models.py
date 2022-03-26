@@ -135,14 +135,14 @@ def HungarianCost(num_classes, target_num = 100, pos_weight = 1., iou_weight = 1
     bbox_gt = x[2]; # bbox_gt_slice.shape = (num_targets, 4)
     labels_gt = x[3]; # labels_gt_slice.shape = (num_targets)
     # 1) get 1-norm of box prediction
-    bbox_pred_reshape = tf.expand_dims(bbox_pred, axis = -2); # bbox_pred_reshape.shape = (num_queries, 1, 4)
-    bbox_gt_reshape = tf.expand_dims(bbox_gt, axis = -3); # bbox_gt_reshape.shape = (1, num_targets, 4)
-    bbox_loss = tf.norm(bbox_pred_reshape - bbox_gt_reshape, ord = 1, axis = -1); # bbox_loss.shape = (num_queries, num_targets)
+    bbox_pred = tf.expand_dims(bbox_pred, axis = -2); # bbox_pred.shape = (num_queries, 1, 4)
+    bbox_gt = tf.expand_dims(bbox_gt, axis = -3); # bbox_gt.shape = (1, num_targets, 4)
+    bbox_loss = tf.norm(bbox_pred - bbox_gt, ord = 1, axis = -1); # bbox_loss.shape = (num_queries, num_targets)
     # get iou = intersect / (area_a + area_b - intersect)
-    bbox_pred_ul = tf.expand_dims(bbox_pred[..., 0:2] - 0.5 * bbox_pred[..., 2:4], axis = -2); # bbox_pred_ul.shape = (num_queries, 1, 2)
-    bbox_pred_dr = tf.expand_dims(bbox_pred[..., 0:2] + 0.5 * bbox_pred[..., 2:4], axis = -2); # bbox_pred_dr.shape = (num_queries, 1, 2)
-    bbox_gt_ul = tf.expand_dims(bbox_gt[..., 0:2] - 0.5 * bbox_gt[..., 2:4], axis = -3); # bbox_gt_ul.shape = (1, num_targets, 2)
-    bbox_gt_dr = tf.expand_dims(bbox_gt[..., 0:2] + 0.5 * bbox_gt[..., 2:4], axis = -3); # bbox_gt_dr.shape = (1, num_targets, 2)
+    bbox_pred_ul = bbox_pred[..., 0:2] - 0.5 * bbox_pred[..., 2:4]; # bbox_pred_ul.shape = (num_queries, 1, 2)
+    bbox_pred_dr = bbox_pred[..., 0:2] + 0.5 * bbox_pred[..., 2:4]; # bbox_pred_dr.shape = (num_queries, 1, 2)
+    bbox_gt_ul = bbox_gt[..., 0:2] - 0.5 * bbox_gt[..., 2:4]; # bbox_gt_ul.shape = (1, num_targets, 2)
+    bbox_gt_dr = bbox_gt[..., 0:2] + 0.5 * bbox_gt[..., 2:4]; # bbox_gt_dr.shape = (1, num_targets, 2)
     upperleft = tf.math.maximum(bbox_pred_ul, bbox_gt_ul); # upperleft.shape = (num_queries, num_targets, 2)
     downright = tf.math.minimum(bbox_pred_dr, bbox_gt_dr); # downright.shape = (num_queries, num_targets, 2)
     intersect_wh = tf.math.maximum(downright - upperleft + 1, 0.); # intersect_wh.shape = (num_queries, num_targets, 2)
@@ -167,8 +167,10 @@ def HungarianCost(num_classes, target_num = 100, pos_weight = 1., iou_weight = 1
     cost = pos_weight * bbox_loss + iou_weight * iou_loss + class_weight * class_loss; # loss.shape = (num_queries, num_targets)
     return tf.RaggedTensor.from_tensor(cost, ragged_rank = 1);
   # costs.shape = (batch, num_queries, ragged num_targets)
-  costs = tf.keras.layers.Lambda(lambda x, n: tf.map_fn(func, (x[0], x[1], x[2], x[3]), fn_output_signature = tf.RaggedTensorSpec(shape = (x[0].shape[1], None), dtype = tf.float32, ragged_rank = 1)), arguments = {'n': target_num})([bbox_pred, labels_pred, bbox_gt, labels_gt]);
-  return tf.keras.Model(inputs = (bbox_pred, labels_pred, bbox_gt, labels_gt), outputs = costs);
+  loss = tf.keras.layers.Lambda(lambda x, n: tf.map_fn(func, (x[0], x[1], x[2], x[3]), 
+                                                       fn_output_signature = tf.RaggedTensorSpec(shape = (x[0].shape[1], None), dtype = tf.float32, ragged_rank = 1)), 
+                                arguments = {'n': target_num})([bbox_pred, labels_pred, bbox_gt, labels_gt]);
+  return tf.keras.Model(inputs = (bbox_pred, labels_pred, bbox_gt, labels_gt), outputs = loss);
 
   '''
   # NOTE: the following code is not supported by tensorflow 2.3
