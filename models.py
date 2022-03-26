@@ -92,7 +92,7 @@ def ImageDecoder(num_layers, d_model, num_heads, code_dim, dropout_rate, activat
     outputs = DecoderLayer(d_model, num_heads, code_dim, dropout_rate, activation)([outputs, code_with_pos, look_ahead_mask, padding_mask]); # outputs.shape = (batch, decode_length, d_model)
   return tf.keras.Model(inputs = (inputs, code, padding_mask), outputs = outputs);
 
-def ImageTransformer(num_classes, num_layers = 2, num_queries = 100, d_model = 256, num_heads = 8, code_dim = 2048, dropout_rate = 0.1, activation = 'relu', position_embedding = 'sine'):
+def ImageTransformer(num_classes, num_layers = 6, num_queries = 100, d_model = 512, num_heads = 8, code_dim = 2048, dropout_rate = 0.1, activation = 'relu', position_embedding = 'sine'):
     
   # NOTE: num_queries is the number of object the model outputs
   assert activation in ['relu', 'gelu'];
