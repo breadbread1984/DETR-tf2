@@ -123,7 +123,7 @@ def DETR(num_classes, target_num = 100, num_layers = 6, hidden_dim = 256, code_d
   classes, coords = ImageTransformer(num_classes, num_layers = num_layers, num_queries = target_num, d_model = hidden_dim, code_dim = code_dim, position_embedding = position_embedding)(results);
   return tf.keras.Model(inputs = inputs, outputs = (classes, coords));
 
-def HungarianCostBatch(num_classes, target_num = 100, pos_weight = 1., iou_weight = 1., class_weight = 1.):
+def HungarianCost(num_classes, target_num = 100, pos_weight = 1., iou_weight = 1., class_weight = 1.):
 
   bbox_pred = tf.keras.Input((target_num, 4)); # bbox_pred.shape = (batch, num_queries, 4)
   labels_pred = tf.keras.Input((target_num, num_classes + 1)); # labels_pred.shhape = (batch, num_queries, num_classes + 1)
@@ -131,63 +131,46 @@ def HungarianCostBatch(num_classes, target_num = 100, pos_weight = 1., iou_weigh
   labels_gt = tf.keras.Input((None, ), ragged = True); # labels_gt.shape = (batch, ragged num_targets)
   hungariancost = HungarianCost(num_classes, pos_weight, iou_weight, class_weight);
   def func(x):
-    bbox_pred_slice = tf.expand_dims(x[0], axis = 0); # bbox_pred_slice.shape = (1, num_queries, 4)
-    labels_pred_slice = tf.expand_dims(x[1], axis = 0); # labels_pred_slice.shape = (1, num_queries, num_classes + 1)
-    bbox_gt_slice = tf.expand_dims(x[2], axis = 0); # bbox_gt_slice.shape = (1, num_targets, 4)
-    labels_gt_slice = tf.expand_dims(x[3], axis = 0); # labels_gt_slice.shape = (1, num_targets)
-    cost_slice = hungariancost([bbox_pred_slice, labels_pred_slice, bbox_gt_slice, labels_gt_slice]); # cost_slice.shape = (1, num_queries, num_targets)
-    cost_slice = tf.squeeze(cost_slice, axis = 0); # cost_slice.shape = (num_queries, num_targets)
-    return tf.RaggedTensor.from_tensor(cost_slice, ragged_rank = 1);
+    bbox_pred = x[0]; # bbox_pred.shape = (num_queries, 4)
+    labels_pred = x[1]; # labels_pred.shape = (num_queries, num_classes + 1)
+    bbox_gt = x[2]; # bbox_gt_slice.shape = (num_targets, 4)
+    labels_gt = x[3]; # labels_gt_slice.shape = (num_targets)
+    # 1) get 1-norm of box prediction
+    bbox_pred_reshape = tf.expand_dims(bbox_pred, axis = -2); # bbox_pred_reshape.shape = (num_queries, 1, 4)
+    bbox_gt_reshape = tf.expand_dims(bbox_gt, axis = -3); # bbox_gt_reshape.shape = (1, num_targets, 4)
+    bbox_loss = tf.norm(bbox_pred_reshape - bbox_gt_reshape, ord = 1, axis = -1); # bbox_loss.shape = (num_queries, num_targets)
+    # get iou = intersect / (area_a + area_b - intersect)
+    bbox_pred_ul = tf.expand_dims(bbox_pred[..., 0:2] - 0.5 * bbox_pred[..., 2:4], axis = -2); # bbox_pred_ul.shape = (num_queries, 1, 2)
+    bbox_pred_dr = tf.expand_dims(bbox_pred[..., 0:2] + 0.5 * bbox_pred[..., 2:4], axis = -2); # bbox_pred_dr.shape = (num_queries, 1, 2)
+    bbox_gt_ul = tf.expand_dims(bbox_gt[..., 0:2] - 0.5 * bbox_gt[..., 2:4], axis = -3); # bbox_gt_ul.shape = (1, num_targets, 2)
+    bbox_gt_dr = tf.expand_dims(bbox_gt[..., 0:2] + 0.5 * bbox_gt[..., 2:4], axis = -3); # bbox_gt_dr.shape = (1, num_targets, 2)
+    upperleft = tf.math.maximum(bbox_pred_ul, bbox_gt_ul); # upperleft.shape = (num_queries, num_targets, 2)
+    downright = tf.math.minimum(bbox_pred_dr, bbox_gt_dr); # downright.shape = (num_queries, num_targets, 2)
+    intersect_wh = tf.math.maximum(downright - upperleft + 1, 0.); # intersect_wh.shape = (num_queries, num_targets, 2)
+    intersect_area = intersect_wh[...,0] * intersect_wh[...,1]; # intersect_area.shape = (num_queries, num_targets)
+    bbox_pred_wh = tf.math.maximum(bbox_pred_dr - bbox_pred_ul + 1, 0.); # bbox_pred_wh.shape = (num_queries, 1, 2)
+    bbox_pred_area = bbox_pred_wh[...,0] * bbox_pred_wh[...,1]; # bbox_pred_area.shape = (num_queries, 1)
+    bbox_gt_wh = tf.math.maximum(bbox_gt_dr - bbox_gt_ul + 1, 0.); # bbox_gt_wh.shape = (1, num_targets, 2)
+    bbox_gt_area = bbox_gt_wh[...,0] * bbox_gt_wh[...,1]; # bbox_gt_area.shape = (1, num_targets)
+    iou = intersect_area / (bbox_pred_area + bbox_gt_area - intersect_area); # iou.shape = (num_queries, num_targets)
+    # get bg_ratio = [bounding - (area_a + area_b - intersect)] / bounding
+    upperleft = tf.math.minimum(bbox_pred_ul, bbox_gt_ul); # upperleft.shape = (num_queries, num_targets, 2)
+    downright = tf.math.maximum(bbox_pred_dr, bbox_gt_dr); # downright.shape = (num_queries, num_targets, 2)
+    bounding_wh = tf.math.maximum(downright - upperleft + 1, 0.); # intersect_wh.shape = (num_queries, num_targets, 2)
+    bounding_area = bounding_wh[...,0] * bounding_wh[...,1]; # bounding_area.shape = (num_queries, num_targets)
+    bg_ratio = (bounding_area - (bbox_pred_area + bbox_gt_area - intersect_area)) / bounding_area; # bg_ratio.shape = (num_queries, num_targets)
+    # 2) get giou loss
+    iou_loss = -(iou - bg_ratio); # iou_loss.shape = (num_queries, num_targets)
+    # 3) get class loss
+    probs = tf.gather(labels_pred, labels_gt, axis = -1); # probs.shape = (num_queries, num_targets)
+    class_loss = -probs; # loss.shape = (num_queries, num_targets)
+    # 4) sum
+    cost = pos_weight * bbox_loss + iou_weight * iou_loss + class_weight * class_loss; # loss.shape = (num_queries, num_targets)
+    return tf.RaggedTensor.from_tensor(cost, ragged_rank = 1);
   # costs.shape = (batch, num_queries, ragged num_targets)
   costs = tf.keras.layers.Lambda(lambda x, n: tf.map_fn(func, (x[0], x[1], x[2], x[3]), fn_output_signature = tf.RaggedTensorSpec(shape = (x[0].shape[1], None), dtype = tf.float32, ragged_rank = 1)), arguments = {'n': target_num})([bbox_pred, labels_pred, bbox_gt, labels_gt]);
   return tf.keras.Model(inputs = (bbox_pred, labels_pred, bbox_gt, labels_gt), outputs = costs);
 
-def HungarianCost(num_classes, pos_weight = 1., iou_weight = 1., class_weight = 1.):
-
-  bbox_pred = tf.keras.Input((None, 4), batch_size = 1); # bbox_pred.shape = (batch = 1, num_queries, 4)
-  labels_pred = tf.keras.Input((None, num_classes + 1), batch_size = 1); # labels_pred.shape = (batch = 1, num_queries, num_classes + 1)
-  bbox_gt = tf.keras.Input((None, 4), batch_size = 1); # bbox_gt.shape = (batch = 1, num_targets, 4)
-  labels_gt = tf.keras.Input((None, ), batch_size = 1); # labels_gt.shape = (batch = 1, num_targets)
-  # 1) get 1-norm of box prediction
-  bbox_pred_reshape = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x, axis = -2))(bbox_pred); # bbox_pred_reshape.shape = (batch, num_queries, 1, 4)
-  bbox_gt_reshape = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x, axis = -3))(bbox_gt); # bbox_gt_reshape.shape = (batch, 1, num_targets, 4)
-  bbox_loss = tf.keras.layers.Lambda(lambda x: tf.norm(x[0] - x[1], ord = 1, axis = -1))([bbox_pred_reshape, bbox_gt_reshape]); # bbox_loss.shape = (batch, num_queries, num_targets)
-  # get iou = intersect / (area_a + area_b - intersect)
-  bbox_pred_ul = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x[..., 0:2] - 0.5 * x[..., 2:4], axis = -2))(bbox_pred); # bbox_pred_ul.shape = (batch, num_queries, 1, 2)
-  bbox_pred_dr = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x[..., 0:2] + 0.5 * x[..., 2:4], axis = -2))(bbox_pred); # bbox_pred_dr.shape = (batch, num_queries, 1, 2)
-  bbox_gt_ul = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x[..., 0:2] - 0.5 * x[..., 2:4], axis = -3))(bbox_gt); # bbox_gt_ul.shape = (batch, 1, num_targets, 2)
-  bbox_gt_dr = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x[..., 0:2] + 0.5 * x[..., 2:4], axis = -3))(bbox_gt); # bbox_gt_dr.shape = (batch, 1, num_targets, 2)
-  upperleft = tf.keras.layers.Lambda(lambda x: tf.math.maximum(x[0], x[1]))([bbox_pred_ul, bbox_gt_ul]); # upperleft.shape = (batch, num_queries, num_targets, 2)
-  downright = tf.keras.layers.Lambda(lambda x: tf.math.minimum(x[0], x[1]))([bbox_pred_dr, bbox_gt_dr]); # downright.shape = (batch, num_queries, num_targets, 2)
-  intersect_wh = tf.keras.layers.Lambda(lambda x: tf.math.maximum(x[1] - x[0] + 1, 0.))([upperleft, downright]); # intersect_wh.shape = (batch, num_queries, num_targets, 2)
-  intersect_area = tf.keras.layers.Lambda(lambda x: x[...,0] * x[...,1])(intersect_wh); # intersect_area.shape = (batch,num_queries, num_targets)
-  bbox_pred_wh = tf.keras.layers.Lambda(lambda x: tf.math.maximum(x[1] - x[0] + 1, 0.))([bbox_pred_ul, bbox_pred_dr]); # bbox_pred_wh.shape = (batch, num_queries, 1, 2)
-  bbox_pred_area = tf.keras.layers.Lambda(lambda x: x[...,0] * x[...,1])(bbox_pred_wh); # bbox_pred_area.shape = (batch, num_queries, 1)
-  bbox_gt_wh = tf.keras.layers.Lambda(lambda x: tf.math.maximum(x[1] - x[0] + 1, 0.))([bbox_gt_ul, bbox_gt_dr]); # bbox_gt_wh.shape = (batch, 1, num_targets, 2)
-  bbox_gt_area = tf.keras.layers.Lambda(lambda x: x[...,0] * x[...,1])(bbox_gt_wh); # bbox_gt_area.shape = (batch, 1, num_targets)
-  iou = tf.keras.layers.Lambda(lambda x: x[0] / (x[1] + x[2] - x[0]))([intersect_area, bbox_pred_area, bbox_gt_area]); # iou.shape = (batch, num_queries, num_targets)
-  # get bg_ratio = [bounding - (area_a + area_b - intersect)] / bounding
-  upperleft = tf.keras.layers.Lambda(lambda x: tf.math.minimum(x[0], x[1]))([bbox_pred_ul, bbox_gt_ul]); # upperleft.shape = (batch, num_queries, num_targets, 2)
-  downright = tf.keras.layers.Lambda(lambda x: tf.math.maximum(x[0], x[1]))([bbox_pred_dr, bbox_gt_dr]); # downright.shape = (batch, num_queries, num_targets, 2)
-  bounding_wh = tf.keras.layers.Lambda(lambda x: tf.math.maximum(x[1] - x[0] + 1, 0.))([upperleft, downright]); # intersect_wh.shape = (batch, num_queries, num_targets, 2)
-  bounding_area = tf.keras.layers.Lambda(lambda x: x[...,0] * x[...,1])(bounding_wh); # bounding_area.shape = (batch, num_queries, num_targets)
-  bg_ratio = tf.keras.layers.Lambda(lambda x: (x[0] - (x[2] + x[3] - x[1])) / x[0])([bounding_area, intersect_area, bbox_pred_area, bbox_gt_area]); # bg_ratio.shape = (batch, num_queries, num_targets)
-  # 2) get giou loss
-  iou_loss = tf.keras.layers.Lambda(lambda x: -(x[0] - x[1]))([iou, bg_ratio]); # iou_loss.shape = (batch, num_queries, num_targets)
-  # 3) get class loss
-  def cond(i, labels_pred, labels_gt, loss):
-    return i < tf.shape(labels_pred)[0];
-  def body(i, labels_pred, labels_gt, loss):
-    labels_pred_slice = labels_pred[i,...]; # labels_pred_slice.shape = (num_queries, num_classes + 1)
-    labels_gt_slice = tf.cast(labels_gt[i,...], dtype = tf.int32); # labels_gt_slices.shape = (num_targets)
-    probs = tf.gather(labels_pred_slice, labels_gt_slice, axis = -1); # probs.shape = (num_queries, num_targets)
-    loss = tf.concat([loss, tf.expand_dims(-probs, axis = 0)], axis = 0); # loss.shape = (n, num_queries, num_targets)
-    return i + 1, labels_pred, labels_gt, loss;
-  class_loss = tf.keras.layers.Lambda(lambda x: -tf.while_loop(cond, body, loop_vars = [0, x[0], x[1], tf.zeros((0, tf.shape(x[0])[1], tf.shape(x[1])[1]))], 
-                                                               shape_invariants = [tf.TensorShape([]), x[0].get_shape(), x[1].get_shape(), tf.TensorShape([None, x[0].shape[1], x[1].shape[1]])])[3])([labels_pred, labels_gt]);
-  # 4) sum
-  cost = tf.keras.layers.Lambda(lambda x, p, i, c: p * x[0] + i * x[1] + c * x[2], arguments = {'p': pos_weight, 'i': iou_weight, 'c': class_weight})([bbox_loss, iou_loss, class_loss]); # cost.shape = (batch, num_queries, num_targets)
-  return tf.keras.Model(inputs = (bbox_pred, labels_pred, bbox_gt, labels_gt), outputs = cost);
   '''
   # NOTE: the following code is not supported by tensorflow 2.3
   # 7) assign num_targets assignments to num_queries workers
@@ -210,7 +193,7 @@ class Loss(tf.keras.Model):
   def __init__(self, num_classes = 100, target_num = 100, weights = {'label_loss': 1, 'bbox_loss': 5, 'iou_loss': 2, 'cardinality_loss': 1}):
 
     super(Loss, self).__init__();
-    self.matcher = HungarianCostBatch(num_classes, target_num);
+    self.matcher = HungarianCost(num_classes, target_num);
     self._weights = weights;
 
   def call(self, x):
