@@ -152,7 +152,7 @@ def HungarianCost(num_classes, pos_weight = 1., iou_weight = 1., class_weight = 
   bbox_pred_reshape = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x, axis = -2))(bbox_pred); # bbox_pred_reshape.shape = (batch, num_queries, 1, 4)
   bbox_gt_reshape = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x, axis = -3))(bbox_gt); # bbox_gt_reshape.shape = (batch, 1, num_targets, 4)
   bbox_loss = tf.keras.layers.Lambda(lambda x: tf.norm(x[0] - x[1], ord = 1, axis = -1))([bbox_pred_reshape, bbox_gt_reshape]); # bbox_loss.shape = (batch, num_queries, num_targets)
-  # 2) get iou = intersect / (area_a + area_b - intersect)
+  # get iou = intersect / (area_a + area_b - intersect)
   bbox_pred_ul = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x[..., 0:2] - 0.5 * x[..., 2:4], axis = -2))(bbox_pred); # bbox_pred_ul.shape = (batch, num_queries, 1, 2)
   bbox_pred_dr = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x[..., 0:2] + 0.5 * x[..., 2:4], axis = -2))(bbox_pred); # bbox_pred_dr.shape = (batch, num_queries, 1, 2)
   bbox_gt_ul = tf.keras.layers.Lambda(lambda x: tf.expand_dims(x[..., 0:2] - 0.5 * x[..., 2:4], axis = -3))(bbox_gt); # bbox_gt_ul.shape = (batch, 1, num_targets, 2)
@@ -166,29 +166,29 @@ def HungarianCost(num_classes, pos_weight = 1., iou_weight = 1., class_weight = 
   bbox_gt_wh = tf.keras.layers.Lambda(lambda x: tf.math.maximum(x[1] - x[0] + 1, 0.))([bbox_gt_ul, bbox_gt_dr]); # bbox_gt_wh.shape = (batch, 1, num_targets, 2)
   bbox_gt_area = tf.keras.layers.Lambda(lambda x: x[...,0] * x[...,1])(bbox_gt_wh); # bbox_gt_area.shape = (batch, 1, num_targets)
   iou = tf.keras.layers.Lambda(lambda x: x[0] / (x[1] + x[2] - x[0]))([intersect_area, bbox_pred_area, bbox_gt_area]); # iou.shape = (batch, num_queries, num_targets)
-  # 3) get bg_ratio = [bounding - (area_a + area_b - intersect)] / bounding
+  # get bg_ratio = [bounding - (area_a + area_b - intersect)] / bounding
   upperleft = tf.keras.layers.Lambda(lambda x: tf.math.minimum(x[0], x[1]))([bbox_pred_ul, bbox_gt_ul]); # upperleft.shape = (batch, num_queries, num_targets, 2)
   downright = tf.keras.layers.Lambda(lambda x: tf.math.maximum(x[0], x[1]))([bbox_pred_dr, bbox_gt_dr]); # downright.shape = (batch, num_queries, num_targets, 2)
   bounding_wh = tf.keras.layers.Lambda(lambda x: tf.math.maximum(x[1] - x[0] + 1, 0.))([upperleft, downright]); # intersect_wh.shape = (batch, num_queries, num_targets, 2)
   bounding_area = tf.keras.layers.Lambda(lambda x: x[...,0] * x[...,1])(bounding_wh); # bounding_area.shape = (batch, num_queries, num_targets)
   bg_ratio = tf.keras.layers.Lambda(lambda x: (x[0] - (x[2] + x[3] - x[1])) / x[0])([bounding_area, intersect_area, bbox_pred_area, bbox_gt_area]); # bg_ratio.shape = (batch, num_queries, num_targets)
-  # 4) get iou loss
+  # 2) get giou loss
   iou_loss = tf.keras.layers.Lambda(lambda x: -(x[0] - x[1]))([iou, bg_ratio]); # iou_loss.shape = (batch, num_queries, num_targets)
-  # 5) get class loss
+  # 3) get class loss
   def cond(i, labels_pred, labels_gt, loss):
     return i < tf.shape(labels_pred)[0];
   def body(i, labels_pred, labels_gt, loss):
     labels_pred_slice = labels_pred[i,...]; # labels_pred_slice.shape = (num_queries, num_classes + 1)
     labels_gt_slice = tf.cast(labels_gt[i,...], dtype = tf.int32); # labels_gt_slices.shape = (num_targets)
-    y = tf.tile(tf.reshape(tf.range(tf.shape(labels_pred_slice)[0]), (-1, 1, 1)), (1, tf.shape(labels_gt_slice)[0], 1)); # y.shape = (num_queries, num_targets, 1)
-    x = tf.tile(tf.reshape(labels_gt_slice, (1, -1, 1)), (tf.shape(labels_pred_slice)[0], 1, 1)); # x.shape = (num_queries, num_targets, 1)
-    yx = tf.concat([y,x], axis = -1); # yx.shape = (num_queries, num_targets, 2)
-    values = tf.expand_dims(tf.gather_nd(labels_pred_slice, yx), axis = 0); # values.shape = (1, num_queries, num_targets)
+    y = tf.tile(tf.reshape(tf.range(tf.shape(labels_pred_slice)[0]), (-1, 1)), (1, tf.shape(labels_gt_slice)[0])); # y.shape = (num_queries, num_targets)
+    x = tf.tile(tf.reshape(labels_gt_slice, (1, -1)), (tf.shape(labels_pred_slice)[0], 1)); # x.shape = (num_queries, num_targets)
+    yx = tf.stack([y,x], axis = -1); # yx.shape = (num_queries, num_targets, 2)
+    values = -tf.expand_dims(tf.gather_nd(labels_pred_slice, yx), axis = 0); # values.shape = (1, num_queries, num_targets)
     loss = tf.concat([loss, values], axis = 0); # loss.shape = (n, num_queries, num_targets)
     return i + 1, labels_pred, labels_gt, loss;
   class_loss = tf.keras.layers.Lambda(lambda x: -tf.while_loop(cond, body, loop_vars = [0, x[0], x[1], tf.zeros((0, tf.shape(x[0])[1], tf.shape(x[1])[1]))], 
                                                                shape_invariants = [tf.TensorShape([]), x[0].get_shape(), x[1].get_shape(), tf.TensorShape([None, x[0].shape[1], x[1].shape[1]])])[3])([labels_pred, labels_gt]);
-  # 6) sum
+  # 4) sum
   cost = tf.keras.layers.Lambda(lambda x, p, i, c: p * x[0] + i * x[1] + c * x[2], arguments = {'p': pos_weight, 'i': iou_weight, 'c': class_weight})([bbox_loss, iou_loss, class_loss]); # cost.shape = (batch, num_queries, num_targets)
   return tf.keras.Model(inputs = (bbox_pred, labels_pred, bbox_gt, labels_gt), outputs = cost);
   '''
