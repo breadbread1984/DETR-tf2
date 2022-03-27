@@ -25,6 +25,3 @@ save the model from checkpoint with command
 python3 save_model.py
 ```
 
-## known issue
-
-currently, due to tensorflow's bug descripted [here](https://github.com/tensorflow/tensorflow/issues/46035). the training code cannot work properly. let's wait for tensorflow's perfect support of ragged tensor.
