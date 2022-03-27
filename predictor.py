@@ -40,7 +40,7 @@ class Predictor(object):
     ], dtype = tf.float32);
     images_data = tf.cast(resize_images, tf.float32) / 255.;
     # detection
-    labels_pred, bbox_pred = detr(images_data); # bbox_pred.shape = (batch, query_num, 4) labels_pred.shape = (batch, query_num, num_classes + 1)
+    labels_pred, bbox_pred = self.detr(images_data); # bbox_pred.shape = (batch, query_num, 4) labels_pred.shape = (batch, query_num, num_classes + 1)
     bbox_pred = (bbox_pred - deviation) * scale * [image.shape[1], image.shape[0], image.shape[1], image.shape[0]];
     labels_pred = tf.math.argmax(labels_pred, axis = -1); # labels_pred.shape = (batch, query_num)
     mask = tf.math.not_equal(labels_pred, 0); # mask.shape = (batch, query_num)
