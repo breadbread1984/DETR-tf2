@@ -2,6 +2,7 @@
 
 from os.path import exists;
 import numpy as np;
+import tensorflow as tf;
 from models import DETR;
 
 class Predictor(object):
