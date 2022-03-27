@@ -143,7 +143,6 @@ def DETR(num_classes, target_num = 100, num_layers = 6, hidden_dim = 256, code_d
 class Loss(tf.keras.Model):
 
   def __init__(self, num_classes = 100, target_num = 100, weights = {'label_loss': 1, 'bbox_loss': 5, 'iou_loss': 2, 'cardinality_loss': 1}):
-
     super(Loss, self).__init__();
     self._weights = weights;
   def combination_losses(self, _bbox_pred, _labels_pred, _bbox_gt, _labels_gt):
@@ -170,13 +169,13 @@ class Loss(tf.keras.Model):
       bbox_pred_area = bbox_pred_wh[...,0] * bbox_pred_wh[...,1]; # bbox_pred_area.shape = (num_queries, 1)
       bbox_gt_wh = tf.math.maximum(bbox_gt_dr - bbox_gt_ul + 1, 0.); # bbox_gt_wh.shape = (1, num_targets, 2)
       bbox_gt_area = bbox_gt_wh[...,0] * bbox_gt_wh[...,1]; # bbox_gt_area.shape = (1, num_targets)
-      iou = intersect_area / (bbox_pred_area + bbox_gt_area - intersect_area); # iou.shape = (num_queries, num_targets)
+      iou = intersect_area / tf.math.maximum(bbox_pred_area + bbox_gt_area - intersect_area, 1e-9); # iou.shape = (num_queries, num_targets)
       # get bg_ratio = [bounding - (area_a + area_b - intersect)] / bounding
       upperleft = tf.math.minimum(bbox_pred_ul, bbox_gt_ul); # upperleft.shape = (num_queries, num_targets, 2)
       downright = tf.math.maximum(bbox_pred_dr, bbox_gt_dr); # downright.shape = (num_queries, num_targets, 2)
       bounding_wh = tf.math.maximum(downright - upperleft + 1, 0.); # intersect_wh.shape = (num_queries, num_targets, 2)
       bounding_area = bounding_wh[...,0] * bounding_wh[...,1]; # bounding_area.shape = (num_queries, num_targets)
-      bg_ratio = (bounding_area - (bbox_pred_area + bbox_gt_area - intersect_area)) / bounding_area; # bg_ratio.shape = (num_queries, num_targets)
+      bg_ratio = (bounding_area - (bbox_pred_area + bbox_gt_area - intersect_area)) / tf.math.maximum(bounding_area, 1e-9); # bg_ratio.shape = (num_queries, num_targets)
       # 2) get giou loss
       iou_loss = -(iou - bg_ratio); # iou_loss.shape = (num_queries, num_targets)
       # 3) get class loss
@@ -225,6 +224,11 @@ class Loss(tf.keras.Model):
     bbox_losses = list();
     iou_losses = list();
     for pred, gt, assignment in zip(bbox_pred, bbox_gt, assignments):
+      if gt.shape[0] == 0:
+        # no target labeled for this image
+        bbox_losses.append(0);
+        iou_losses.append(0);
+        continue;
       pred = tf.gather(pred, assignment[...,0]); # pred.shape = (target_num, 4)
       target = tf.gather(gt, assignment[...,1]); # target.shape = (target_num, 4)
       # regression loss
@@ -247,8 +251,8 @@ class Loss(tf.keras.Model):
       bbox_gt_wh = tf.math.maximum(bbox_gt_dr - bbox_gt_ul + 1, 0); # bbox_gt_wh.shape = (num_targets, 2)
       bbox_gt_area = bbox_gt_wh[...,0] * bbox_gt_wh[...,1]; # bbox_gt_area.shape = (num_targets)
       union = bbox_pred_area + bbox_gt_area - intersect_area; # union.shape = (num_targets)
-      iou = intersect_area / union; # iou.shape = (num_targets)
-      bg_ratio = (bounding_area - union) / bounding_area; # bg_ratio.shape = (num_targets)
+      iou = intersect_area / tf.math.maximum(union, 1e-9); # iou.shape = (num_targets)
+      bg_ratio = (bounding_area - union) / tf.math.maximum(bounding_area, 1e-9); # bg_ratio.shape = (num_targets)
       iou_loss = tf.math.reduce_mean(iou - bg_ratio); # iou_loss.shape = ()
       bbox_losses.append(reg_loss);
       iou_losses.append(iou_loss);
