@@ -48,7 +48,7 @@ class Predictor(object):
     masked_label = tf.expand_dims(tf.boolean_mask(labels_pred, mask), axis = -1); # masked_label.shape = (target_num, 1)
     upper_left = masked_bbox[...,0:2] - 0.5 * masked_bbox[...,2:4];
     down_right = masked_bbox[...,0:2] + 0.5 * masked_bbox[...,2:4];
-    boundings = tf.keras.layers.Concatenate(axis = -1)([upper_left, down_right, masked_label]); # boundings.shape = (target_num, 5) in sequence of (x1, y1, x2, y2, class)
+    boundings = tf.keras.layers.Concatenate(axis = -1)([upper_left, down_right, tf.cast(masked_label, dtype = tf.float32)]); # boundings.shape = (target_num, 5) in sequence of (x1, y1, x2, y2, class)
     return boundings;
 
 if __name__ == "__main__":
