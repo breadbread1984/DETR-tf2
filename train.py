@@ -62,7 +62,7 @@ def main():
       for i in range(10):
         images, (bbox, labels) = next(testset_iter);
         labels_pred, bbox_pred = detr(images);
-        loss = detr_loss(bbox_pred, labels_pred, bbox, labels);
+        loss = detr_loss([bbox_pred, labels_pred, bbox, labels]);
         test_loss.update_state(loss);
       # visualize
       image, bbox, labels = next(validationset_iter);
