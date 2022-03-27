@@ -10,8 +10,8 @@ class Predictor(object):
   def __init__(self, query_num = 50, class_num = 80, input_shape = (416, 416, 3), detr = None):
 
     # load model object from serialized file or assign directly
+    self.input_shape = input_shape;
     if detr is None:
-      self.input_shape = input_shape;
       if exists('detr.h5'):
         self.detr = tf.keras.models.load_model('detr.h5', compile = False);
       else:
@@ -20,7 +20,6 @@ class Predictor(object):
         checkpoint = tf.train.Checkpoint(model = self.detr, optimizer = optimizer);
         checkpoint.restore(tf.train.latest_checkpoint('checkpoints'));
     else:
-      self.input_shape = tuple(detr.input.shape[1:]);
       self.detr = detr;
 
   def predict(self, image):
