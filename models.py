@@ -269,6 +269,4 @@ if __name__ == "__main__":
   classes, coords = detr(a);
   print(classes.shape, coords.shape)
   detr.save('detr.h5');
-  matcher = HungarianCostBatch(100, 100);
-  matcher.save('matcher.h5');
   #tf.keras.utils.plot_model(model = detr, to_file = 'DETR.png', show_shapes = True, dpi = 64);
