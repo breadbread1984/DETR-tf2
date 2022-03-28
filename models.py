@@ -253,7 +253,7 @@ class Loss(tf.keras.Model):
       union = bbox_pred_area + bbox_gt_area - intersect_area; # union.shape = (num_targets)
       iou = intersect_area / tf.math.maximum(union, 1e-9); # iou.shape = (num_targets)
       bg_ratio = (bounding_area - union) / tf.math.maximum(bounding_area, 1e-9); # bg_ratio.shape = (num_targets)
-      iou_loss = tf.math.reduce_mean(iou - bg_ratio); # iou_loss.shape = ()
+      iou_loss = -tf.math.reduce_mean(iou - bg_ratio); # iou_loss.shape = ()
       bbox_losses.append(reg_loss);
       iou_losses.append(iou_loss);
     # 5) sum up losses
